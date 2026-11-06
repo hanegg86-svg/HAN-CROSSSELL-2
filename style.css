@@ -113,25 +113,6 @@ body {
   background: #ef4444;
 }
 
-/* กล่องแสดงรูปถ่ายหน้างานขนาดใหญ่ (Enlarged Card Photo) */
-.site-card-large-image {
-  max-height: 240px;
-  border-radius: 0.75rem;
-  overflow: hidden;
-  position: relative;
-}
-
-.site-card-large-image img {
-  width: 100%;
-  height: 220px;
-  object-fit: cover;
-  transition: transform 0.25s ease-in-out;
-}
-
-.site-card-large-image:hover img {
-  transform: scale(1.03);
-}
-
 /* Print Optimization */
 @media print {
   header, #dropZone, button, select, input, .no-print {

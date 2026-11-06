@@ -1,12 +1,13 @@
 /**
  * Service Worker - sw.js
  * จัดการ Caching ด้วยกลยุทธ์ Network-First สำหรับโหมด Offline PWA
- * รองรับการทำงานบน GitHub Pages / Vercel และข้ามการแคชสำหรับ Google Gemini API
+ * อัปเดตเวอร์ชันแคช (v3) เพื่อรองรับฟังก์ชันรวม 2 รูปและการแก้ไขการ์ดหน้างาน
+ * ข้ามการแคชสำหรับ Google Gemini API โดยตรง
  */
 
-const CACHE_NAME = 'sales-analytics-v2';
+const CACHE_NAME = 'sales-analytics-v3';
 
-// รายการไฟล์ที่ต้องแคชไว้ใช้งานออฟไลน์
+// รายการไฟล์ทั้งหมดในโปรเจกต์ที่ต้องแคชไว้ใช้งานออฟไลน์
 const STATIC_ASSETS = [
   './',
   './index.html',
@@ -26,7 +27,7 @@ const STATIC_ASSETS = [
   'https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap'
 ];
 
-// ติดตั้ง Service Worker และพรีแคชไฟล์พื้นฐาน
+// ติดตั้ง Service Worker และพรีแคชไฟล์พื้นฐานทั้งหมด
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
@@ -36,7 +37,7 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// เคลียร์แคชเวอร์ชันเก่าเมื่อมีการอัปเดต Service Worker
+// เคลียร์แคชเวอร์ชันเก่าทิ้งทันทีเมื่อโหลดเวอร์ชันใหม่
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {

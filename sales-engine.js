@@ -300,7 +300,7 @@ function processSalesCSV(rows) {
   initForecastControls();
   initDealerComparisonControls();
   updateUIUnitLabels();
-  applyMasterProjectFilter(); // คำนวณและอัปเดตทุกระบบพร้อมกัน
+  applyMasterProjectFilter();
 }
 
 function handlePriceFile(file) {
@@ -947,7 +947,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('openGeminiModalBtn')?.addEventListener('click', openGeminiKeyModal);
   document.getElementById('openSiteVisitModalBtn')?.addEventListener('click', openSiteVisitModal);
 
-  // Direct Site Visit Upload in Weekly Section (อัปโหลดตรงทันที ไม่ต้องผ่าน AI)
+  // Direct Site Visit Upload in Weekly Section
   const weeklyDirectInput = document.getElementById('weeklyDirectFileInput');
   const weeklyInlineZone = document.getElementById('weeklyInlineDropZone');
 
@@ -1049,8 +1049,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
 
-  // Modal Backdrop Click
-  const modals = ['geminiKeyModal', 'siteVisitModal', 'crossSellModal', 'projectModal', 'imageLightboxModal'];
+  // Modal Backdrop Click (รวมถึง editSiteVisitModal)
+  const modals = ['geminiKeyModal', 'siteVisitModal', 'crossSellModal', 'projectModal', 'imageLightboxModal', 'editSiteVisitModal'];
   modals.forEach(mId => {
     const el = document.getElementById(mId);
     if (el) {

@@ -1,7 +1,8 @@
 /**
  * Site Visit & Photo Management (site-visit.js)
- * จัดการรูปถ่ายหน้างาน (อัปโหลดตรงทันที ไม่ต้องผ่าน AI), ระบบ AI Analysis (gemini-3.5-flash-lite),
- * แสดงภาพขนาดใหญ่, ลบรายการเฉพาะกล่อง, Lightbox และคัดลอกสรุปส่ง LINE
+ * จัดการรูปถ่ายหน้างาน (อัปโหลดตรงทันที ไม่ต้องผ่าน AI),
+ * รวมภาพชุดวิเคราะห์ AI ด้วยโมเดล gemini-3.5-flash-lite เป็น 1 รายงานเดียว,
+ * ระบบแก้ไขข้อความรายงาน (Edit Modal), ลบรายการเฉพาะกล่อง, Lightbox และคัดลอกส่ง LINE
  */
 
 function openGeminiKeyModal() {
@@ -61,12 +62,11 @@ function updateApiKeyStatusUI() {
 }
 
 // ==========================================
-// Direct Photo Upload (ไม่ต้องวิเคราะห์ AI)
+// Direct Photo Upload (รวมชุดภาพลง 1 กล่อง ไม่ผ่าน AI)
 // ==========================================
 async function handleDirectSitePhotoUpload(files) {
   if (!files || files.length === 0) return;
 
-  // ดึงข้อมูลโครงการจาก Master Project Filter ปัจจุบัน
   let targetProjId = '';
   let targetProjName = 'รูปถ่ายหน้างานทั่วไป';
 
@@ -87,42 +87,44 @@ async function handleDirectSitePhotoUpload(files) {
     year: 'numeric'
   });
 
-  let savedCount = 0;
+  const imgObjs = [];
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
-    if (!file.type.startsWith('image/')) continue;
-
-    try {
-      const imgData = await fileToBase64(file);
-      const siteLog = {
-        projectId: targetProjId,
-        projectName: targetProjName,
-        contractor: 'บันทึกรูปถ่ายหน้างาน',
-        visitDate: currentDateStr,
-        siteProgress: `ภาพถ่ายความคืบหน้าหน้างาน (${file.name || 'รูปภาพ'})`,
-        materialForecast: '-',
-        issuesAndRisks: 'หน้างานปกติ',
-        nextWeekActions: '-',
-        riskLevel: 'Low',
-        imageData: imgData.base64Data,
-        mimeType: imgData.mimeType,
-        createdAt: new Date().toISOString()
-      };
-
-      await dbSave('site_visits', siteLog);
-      savedCount++;
-    } catch (err) {
-      console.error('Save photo error:', err);
+    if (file.type.startsWith('image/')) {
+      try {
+        const imgData = await fileToBase64(file);
+        imgObjs.push(imgData);
+      } catch (err) {
+        console.error('File to base64 error:', err);
+      }
     }
   }
 
-  if (savedCount > 0) {
-    await loadSiteVisitLogsFromDB();
-  }
+  if (imgObjs.length === 0) return;
+
+  const siteLog = {
+    projectId: targetProjId,
+    projectName: targetProjName,
+    contractor: 'บันทึกรูปถ่ายหน้างาน',
+    visitDate: currentDateStr,
+    siteProgress: `บันทึกรูปถ่ายความคืบหน้าหน้างานจำนวน ${imgObjs.length} ภาพ`,
+    materialForecast: '-',
+    issuesAndRisks: 'หน้างานดำเนินไปตามแผนงานปกติ',
+    nextWeekActions: '-',
+    riskLevel: 'Low',
+    images: imgObjs.map(img => ({ base64Data: img.base64Data, mimeType: img.mimeType })),
+    imageData: imgObjs[0].base64Data,
+    mimeType: imgObjs[0].mimeType,
+    createdAt: new Date().toISOString()
+  };
+
+  await dbSave('site_visits', siteLog);
+  await loadSiteVisitLogsFromDB();
 }
 
 // ==========================================
 // AI Analysis Modal & Execution (gemini-3.5-flash-lite)
+// รวมภาพทั้งหมดใน Batch เดียวเป็น 1 รายงาน
 // ==========================================
 function openSiteVisitModal() {
   if (!geminiApiKey) {
@@ -203,6 +205,9 @@ function fileToBase64(file) {
   });
 }
 
+/**
+ * วิเคราะห์ภาพทั้งหมดพร้อมกันใน 1 คำขอ แล้วบันทึกเป็น 1 กล่องสรุป
+ */
 async function processSiteVisitImagesWithAI() {
   if (!geminiApiKey) {
     alert('กรุณาตั้งค่า Gemini API Key ก่อน');
@@ -227,72 +232,84 @@ async function processSiteVisitImagesWithAI() {
   if (progressBar) progressBar.classList.remove('hidden');
   if (startBtn) startBtn.disabled = true;
 
-  let completedCount = 0;
-  const totalCount = selectedSiteFiles.length;
+  try {
+    if (statusText) statusText.textContent = `กำลังแปลงไฟล์รูปภาพ ${selectedSiteFiles.length} รูป...`;
+    if (fillBar) fillBar.style.width = '30%';
+    if (percentText) percentText.textContent = '30%';
 
-  for (let i = 0; i < selectedSiteFiles.length; i++) {
-    const file = selectedSiteFiles[i];
-    const currentNum = i + 1;
-    if (statusText) statusText.innerHTML = `กำลังอ่านรูปภาพ ${currentNum}/${totalCount} ด้วย gemini-3.5-flash-lite...`;
-
-    try {
-      const imgData = await fileToBase64(file);
-      const aiResult = await callGeminiFlashLiteVision(imgData, targetProjectObj);
-      
-      const siteLog = {
-        projectId: aiResult.projectId || (targetProjectObj ? targetProjectObj.id : '') || 'Unknown',
-        projectName: aiResult.projectName || (targetProjectObj ? targetProjectObj.name : 'ไม่ระบุชื่อโครงการ'),
-        contractor: aiResult.contractor || '-',
-        visitDate: aiResult.visitDate || new Date().toISOString().slice(0, 10),
-        siteProgress: aiResult.siteProgress || '-',
-        materialForecast: aiResult.materialForecast || '-',
-        issuesAndRisks: aiResult.issuesAndRisks || '-',
-        nextWeekActions: aiResult.nextWeekActions || '-',
-        riskLevel: aiResult.riskLevel || 'Low',
-        imageData: imgData.base64Data,
-        mimeType: imgData.mimeType,
-        createdAt: new Date().toISOString()
-      };
-
-      await dbSave('site_visits', siteLog);
-    } catch (err) {
-      console.error(`AI analysis failed for image ${currentNum}:`, err);
+    const imgObjs = [];
+    for (let i = 0; i < selectedSiteFiles.length; i++) {
+      const imgData = await fileToBase64(selectedSiteFiles[i]);
+      imgObjs.push(imgData);
     }
 
-    completedCount++;
-    const pct = Math.round((completedCount / totalCount) * 100);
-    if (percentText) percentText.textContent = `${pct}%`;
-    if (fillBar) fillBar.style.width = `${pct}%`;
-  }
+    if (statusText) statusText.textContent = `กำลังวิเคราะห์และสังเคราะห์ข้อมูลด้วย gemini-3.5-flash-lite...`;
+    if (fillBar) fillBar.style.width = '65%';
+    if (percentText) percentText.textContent = '65%';
 
-  if (statusText) statusText.textContent = 'วิเคราะห์เสร็จสิ้นครบทุกภาพแล้ว!';
-  await loadSiteVisitLogsFromDB();
+    const aiResult = await callGeminiFlashLiteVision(imgObjs, targetProjectObj);
 
-  setTimeout(() => {
+    const currentDateStr = new Date().toLocaleDateString('th-TH', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
+
+    const siteLog = {
+      projectId: aiResult.projectId || (targetProjectObj ? targetProjectObj.id : '') || 'Unknown',
+      projectName: aiResult.projectName || (targetProjectObj ? targetProjectObj.name : 'ไม่ระบุชื่อโครงการ'),
+      contractor: aiResult.contractor || '-',
+      visitDate: aiResult.visitDate || currentDateStr,
+      siteProgress: aiResult.siteProgress || '-',
+      materialForecast: aiResult.materialForecast || '-',
+      issuesAndRisks: aiResult.issuesAndRisks || '-',
+      nextWeekActions: aiResult.nextWeekActions || '-',
+      riskLevel: aiResult.riskLevel || 'Low',
+      images: imgObjs.map(img => ({ base64Data: img.base64Data, mimeType: img.mimeType })),
+      imageData: imgObjs[0] ? imgObjs[0].base64Data : '',
+      mimeType: imgObjs[0] ? imgObjs[0].mimeType : 'image/jpeg',
+      createdAt: new Date().toISOString()
+    };
+
+    await dbSave('site_visits', siteLog);
+
+    if (fillBar) fillBar.style.width = '100%';
+    if (percentText) percentText.textContent = '100%';
+    if (statusText) statusText.textContent = 'วิเคราะห์และรวมข้อมูลสรุปเรียบร้อยแล้ว!';
+
+    await loadSiteVisitLogsFromDB();
+
+    setTimeout(() => {
+      if (progressBar) progressBar.classList.add('hidden');
+      if (startBtn) startBtn.disabled = false;
+      clearSelectedSiteImages();
+      closeSiteVisitModal();
+    }, 600);
+  } catch (err) {
+    console.error('AI analysis failed:', err);
+    alert('เกิดข้อผิดพลาดในการวิเคราะห์ AI: ' + err.message);
     if (progressBar) progressBar.classList.add('hidden');
     if (startBtn) startBtn.disabled = false;
-    clearSelectedSiteImages();
-    closeSiteVisitModal();
-  }, 600);
+  }
 }
 
 /**
- * เรียกใช้ Gemini API โดยระบุ Model เป็น gemini-3.5-flash-lite
+ * เรียกใช้ Gemini API โดยระบุ Model เป็น gemini-3.5-flash-lite รองรับ Multi-Image
  */
-async function callGeminiFlashLiteVision(imgObj, targetProjectObj) {
+async function callGeminiFlashLiteVision(imgObjs, targetProjectObj) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${geminiApiKey}`;
 
   const promptText = `
-คุณเป็นผู้ช่วยวิศวกรและผู้จัดการฝ่ายขาย สรุปข้อมูลรายงานประวัติการเข้าเยี่ยมหน้างาน (Site Visit) จากภาพที่แนบมานี้
+คุณเป็นผู้ช่วยวิศวกรและผู้จัดการฝ่ายขาย สรุปข้อมูลรายงานประวัติการเข้าเยี่ยมหน้างาน (Site Visit) จากภาพที่แนบมาทั้งหมดนี้ (มีจำนวน ${imgObjs.length} ภาพ อาจประกอบด้วยภาพสภาพหน้างาน ภาพเอกสาร หรือป้ายโครงการ ให้เชื่อมโยงและสังเคราะห์ข้อมูลทั้งหมดเข้าด้วยกันเป็นรายงานเดียว)
 โครงการเป้าหมายเบื้องต้น: ${targetProjectObj ? `${targetProjectObj.name} (รหัส: ${targetProjectObj.id})` : 'ระบุจากข้อมูลในภาพ'}
 
 โปรดอ่านข้อความ ปริมาณสินค้า วันที่ และความคืบหน้า แล้วตอบกลับเป็นรูปแบบ JSON บริสุทธิ์ (Pure JSON) เท่านั้น โดยมีโครงสร้างดังนี้:
 {
-  "projectId": "รหัสโครงการ เช่น P000422560 (ถ้าอ่านได้ ให้ดึงมา ถ้าไม่มีให้ใส่ว่าง)",
+  "projectId": "รหัสโครงการ เช่น P000422560 (ถ้าอ่านได้ให้ดึงมา ถ้าไม่มีให้ใส่ว่าง)",
   "projectName": "ชื่อโครงการ (เช่น Bangna Mall KM8 หรือ New Chemical Factory Chang-MKS)",
   "contractor": "ชื่อบริษัทผู้รับเหมา (เช่น บ.ซี.อี.เอส. จก.)",
   "visitDate": "วันที่และเวลาเข้าเยี่ยม เช่น 05/11/2026",
-  "siteProgress": "สรุปแผนงานและความคืบหน้าหน้างาน และการใช้งานสินค้าปัจจุบันอย่างกระชับ",
+  "siteProgress": "สรุปแผนงานและความคืบหน้าหน้างาน และการใช้งานสินค้าปัจจุบันอย่างกระชับ สังเคราะห์จากทุกภาพรวมกัน",
   "materialForecast": "สินค้าที่มีแผนเรียกเข้า / แผน Material Forecast สัปดาห์หน้า",
   "issuesAndRisks": "ปัญหาหน้างาน สภาพอากาศ หรือข้อกังวลจากลูกค้า (หากไม่มีให้ระบุว่า หน้างานดำเนินไปตามแผนงานปกติ)",
   "nextWeekActions": "การประสานงานแก้ไข หรือสิ่งที่ต้องติดตามต่อในสัปดาห์หน้า",
@@ -301,20 +318,18 @@ async function callGeminiFlashLiteVision(imgObj, targetProjectObj) {
 ห้ามใส่ข้อความเกริ่นนำหรือคำลงท้ายใดๆ ส่งกลับเฉพาะ JSON String เท่านั้น
 `;
 
-  const payload = {
-    contents: [
-      {
-        parts: [
-          { text: promptText },
-          {
-            inline_data: {
-              mime_type: imgObj.mimeType,
-              data: imgObj.base64Data
-            }
-          }
-        ]
+  const parts = [{ text: promptText }];
+  imgObjs.forEach(img => {
+    parts.push({
+      inline_data: {
+        mime_type: img.mimeType,
+        data: img.base64Data
       }
-    ],
+    });
+  });
+
+  const payload = {
+    contents: [{ parts: parts }],
     generationConfig: {
       temperature: 0.1,
       responseMimeType: "application/json"
@@ -363,8 +378,55 @@ async function deleteSingleSiteVisit(id) {
   await loadSiteVisitLogsFromDB();
 }
 
+// ==========================================
+// ระบบแก้ไขข้อความรายงาน (Edit Summary Modal)
+// ==========================================
+function openEditSiteVisitModal(id) {
+  const item = siteVisitLogsGlobal.find(i => i.id === id);
+  if (!item) return;
+
+  document.getElementById('editVisitId').value = item.id;
+  document.getElementById('editProjectName').value = item.projectName || '';
+  document.getElementById('editProjectId').value = item.projectId || '';
+  document.getElementById('editContractor').value = item.contractor || '';
+  document.getElementById('editVisitDate').value = item.visitDate || '';
+  document.getElementById('editRiskLevel').value = item.riskLevel || 'Low';
+  document.getElementById('editSiteProgress').value = item.siteProgress || '';
+  document.getElementById('editMaterialForecast').value = item.materialForecast || '';
+  document.getElementById('editIssuesAndRisks').value = item.issuesAndRisks || '';
+  document.getElementById('editNextWeekActions').value = item.nextWeekActions || '';
+
+  const modal = document.getElementById('editSiteVisitModal');
+  if (modal) modal.classList.remove('hidden');
+}
+
+function closeEditSiteVisitModal() {
+  const modal = document.getElementById('editSiteVisitModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+async function saveEditSiteVisit() {
+  const id = parseInt(document.getElementById('editVisitId').value, 10);
+  const item = siteVisitLogsGlobal.find(i => i.id === id);
+  if (!item) return;
+
+  item.projectName = document.getElementById('editProjectName').value.trim();
+  item.projectId = document.getElementById('editProjectId').value.trim();
+  item.contractor = document.getElementById('editContractor').value.trim();
+  item.visitDate = document.getElementById('editVisitDate').value.trim();
+  item.riskLevel = document.getElementById('editRiskLevel').value;
+  item.siteProgress = document.getElementById('editSiteProgress').value.trim();
+  item.materialForecast = document.getElementById('editMaterialForecast').value.trim();
+  item.issuesAndRisks = document.getElementById('editIssuesAndRisks').value.trim();
+  item.nextWeekActions = document.getElementById('editNextWeekActions').value.trim();
+
+  await dbSave('site_visits', item);
+  await loadSiteVisitLogsFromDB();
+  closeEditSiteVisitModal();
+}
+
 /**
- * Render รายการรายงานหน้างาน พร้อมขยายขนาดรูปภาพชัดเจน และปุ่มลบแยกกล่อง
+ * Render รายการรายงานหน้างาน รองรับรูปเดี่ยว / รูปคู่ขนาดใหญ่ พร้อมปุ่ม Edit
  */
 function renderWeeklySiteVisitDashboard() {
   const emptyState = document.getElementById('weeklyEmptyState');
@@ -412,23 +474,37 @@ function renderWeeklySiteVisitDashboard() {
         riskText = 'เฝ้าระวัง (Medium Risk)';
       }
 
-      // แสดงภาพขนาดใหญ่ ชัดเจน ไม่ใช่แค่ Thumbnail เล็กๆ
-      let photoBigHtml = '';
-      if (item.imageData) {
-        const jsBase64 = escapeJsString(item.imageData);
+      // ดึงรูปภาพทั้งหมด (รองรับทั้ง images array และ imageData เดิม)
+      const imagesList = (item.images && item.images.length > 0)
+        ? item.images
+        : (item.imageData ? [{ base64Data: item.imageData, mimeType: item.mimeType || 'image/jpeg' }] : []);
+
+      let photoHtml = '';
+      if (imagesList.length > 0) {
         const jsName = escapeJsString(item.projectName);
-        photoBigHtml = `
+        const gridColsClass = imagesList.length === 1 ? 'grid-cols-1' : 'grid-cols-2';
+        const imgHeightClass = imagesList.length === 1 ? 'h-52 sm:h-60' : 'h-36 sm:h-44';
+
+        photoHtml = `
           <div class="mt-3">
-            <div class="text-[11px] font-semibold text-slate-500 mb-1.5 flex items-center gap-1">
-              <span>📸</span> ภาพถ่ายหน้างาน:
+            <div class="text-[11px] font-semibold text-slate-500 mb-1.5 flex items-center justify-between">
+              <span class="flex items-center gap-1">📸 ภาพถ่ายหน้างาน (${imagesList.length} รูป):</span>
+              <span class="text-[10px] text-slate-400 font-normal">คลิกเพื่อดูรูปใหญ่</span>
             </div>
-            <div class="site-card-large-image rounded-xl overflow-hidden border border-slate-200 bg-slate-100 relative group cursor-pointer shadow-sm"
-                 onclick="openImageLightbox('${jsBase64}', '${jsName}')">
-              <img src="data:${item.mimeType || 'image/jpeg'};base64,${item.imageData}" alt="Site Photo"
-                   class="w-full h-48 sm:h-56 object-cover group-hover:scale-105 transition-transform duration-200">
-              <div class="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 text-white text-xs font-semibold backdrop-blur-[1px]">
-                <span>🔍</span> คลิกเพื่อดูภาพขยายเต็มจอ
-              </div>
+            <div class="grid ${gridColsClass} gap-2">
+              ${imagesList.map((imgObj, pIdx) => {
+                const jsBase64 = escapeJsString(imgObj.base64Data);
+                return `
+                  <div class="rounded-xl overflow-hidden border border-slate-200 bg-slate-100 relative group cursor-pointer shadow-sm"
+                       onclick="openImageLightbox('${jsBase64}', '${jsName} (รูปที่ ${pIdx + 1})')">
+                    <img src="data:${imgObj.mimeType || 'image/jpeg'};base64,${imgObj.base64Data}" alt="Site Photo"
+                         class="w-full ${imgHeightClass} object-cover group-hover:scale-105 transition-transform duration-200">
+                    <div class="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1 text-white text-[11px] font-semibold backdrop-blur-[1px]">
+                      <span>🔍 ซูมภาพ</span>
+                    </div>
+                  </div>
+                `;
+              }).join('')}
             </div>
           </div>
         `;
@@ -452,7 +528,6 @@ function renderWeeklySiteVisitDashboard() {
                 <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${riskBadgeClass} whitespace-nowrap">
                   ${riskText}
                 </span>
-                <!-- ปุ่มลบกล่องนี้ -->
                 <button onclick="deleteSingleSiteVisit(${item.id})" title="ลบรายการนี้"
                         class="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
@@ -460,8 +535,8 @@ function renderWeeklySiteVisitDashboard() {
               </div>
             </div>
 
-            <!-- ภาพถ่ายขนาดใหญ่ -->
-            ${photoBigHtml}
+            <!-- แสดงภาพถ่าย -->
+            ${photoHtml}
 
             <!-- ข้อมูลสรุปความคืบหน้า -->
             <div class="mt-3 space-y-2 text-xs">
@@ -497,14 +572,17 @@ function renderWeeklySiteVisitDashboard() {
             </div>
           </div>
 
-          <!-- ท้ายการ์ด: เวลาบันทึก + ปุ่มคัดลอก + ปุ่มลบ -->
-          <div class="pt-2 border-t border-slate-100 flex justify-between items-center text-[11px] text-slate-400">
+          <!-- ท้ายการ์ด: เวลาบันทึก + ปุ่มแก้ไข + ปุ่มคัดลอก + ปุ่มลบ -->
+          <div class="pt-2 border-t border-slate-100 flex flex-wrap justify-between items-center gap-2 text-[11px] text-slate-400">
             <span>บันทึกเมื่อ: ${new Date(item.createdAt).toLocaleString('th-TH')}</span>
-            <div class="flex items-center gap-3">
-              <button onclick="copySingleProjectSummary(${item.id})" class="text-sky-600 hover:text-sky-800 hover:underline font-semibold flex items-center gap-1">
+            <div class="flex items-center gap-2.5">
+              <button onclick="openEditSiteVisitModal(${item.id})" class="text-amber-600 hover:text-amber-800 font-semibold flex items-center gap-1 hover:underline">
+                <span>✏️</span> แก้ไข
+              </button>
+              <button onclick="copySingleProjectSummary(${item.id})" class="text-sky-600 hover:text-sky-800 font-semibold flex items-center gap-1 hover:underline">
                 <span>📋</span> คัดลอก
               </button>
-              <button onclick="deleteSingleSiteVisit(${item.id})" class="text-rose-500 hover:text-rose-700 hover:underline font-semibold flex items-center gap-0.5">
+              <button onclick="deleteSingleSiteVisit(${item.id})" class="text-rose-500 hover:text-rose-700 font-semibold flex items-center gap-0.5 hover:underline">
                 <span>🗑️</span> ลบ
               </button>
             </div>
@@ -544,20 +622,13 @@ function copyWeeklySummaryText() {
 
   let text = `📢 สรุปรายงานหน้างานและแผนสินค้าประจำสัปดาห์\n---------------------------------------\n`;
   list.forEach((item, idx) => {
-    text += `\n[${idx + 1}] โครงการ: ${item.projectName} (${item.projectId || '-'})
-`;
-    text += `👤 ผรม.: ${item.contractor || '-'}
-`;
-    text += `📅 วันที่เข้าเยี่ยม: ${item.visitDate || '-'}
-`;
-    text += `🏗️ ความคืบหน้า: ${item.siteProgress || '-'}
-`;
-    text += `🚚 แผนเรียกสินค้า: ${item.materialForecast || '-'}
-`;
-    text += `⚠️ ปัญหา/ข้อกังวล: ${item.issuesAndRisks || '-'}
-`;
-    text += `📋 Action สัปดาห์หน้า: ${item.nextWeekActions || '-'}
-`;
+    text += `\n[${idx + 1}] โครงการ: ${item.projectName} (${item.projectId || '-'})\n`;
+    text += `👤 ผรม.: ${item.contractor || '-'}\n`;
+    text += `📅 วันที่เข้าเยี่ยม: ${item.visitDate || '-'}\n`;
+    text += `🏗️ ความคืบหน้า: ${item.siteProgress || '-'}\n`;
+    text += `🚚 แผนเรียกสินค้า: ${item.materialForecast || '-'}\n`;
+    text += `⚠️ ปัญหา/ข้อกังวล: ${item.issuesAndRisks || '-'}\n`;
+    text += `📋 Action สัปดาห์หน้า: ${item.nextWeekActions || '-'}\n`;
     text += `---------------------------------------\n`;
   });
 
@@ -572,20 +643,13 @@ function copySingleProjectSummary(id) {
   const item = siteVisitLogsGlobal.find(i => i.id === id);
   if (!item) return;
 
-  let text = `📢 รายงานความคืบหน้าหน้างาน: ${item.projectName} (${item.projectId || '-'})
-`;
-  text += `👤 ผรม.: ${item.contractor || '-'}
-`;
-  text += `📅 วันที่เข้าเยี่ยม: ${item.visitDate || '-'}
-`;
-  text += `🏗️ ความคืบหน้า: ${item.siteProgress || '-'}
-`;
-  text += `🚚 แผนเรียกสินค้า: ${item.materialForecast || '-'}
-`;
-  text += `⚠️ ปัญหา/ข้อกังวล: ${item.issuesAndRisks || '-'}
-`;
-  text += `📋 Action สัปดาห์หน้า: ${item.nextWeekActions || '-'}
-`;
+  let text = `📢 รายงานความคืบหน้าหน้างาน: ${item.projectName} (${item.projectId || '-'})\n`;
+  text += `👤 ผรม.: ${item.contractor || '-'}\n`;
+  text += `📅 วันที่เข้าเยี่ยม: ${item.visitDate || '-'}\n`;
+  text += `🏗️ ความคืบหน้า: ${item.siteProgress || '-'}\n`;
+  text += `🚚 แผนเรียกสินค้า: ${item.materialForecast || '-'}\n`;
+  text += `⚠️ ปัญหา/ข้อกังวล: ${item.issuesAndRisks || '-'}\n`;
+  text += `📋 Action สัปดาห์หน้า: ${item.nextWeekActions || '-'}\n`;
 
   navigator.clipboard.writeText(text).then(() => {
     alert(`คัดลอกข้อความสรุปโครงการ ${item.projectName} เรียบร้อยแล้ว`);
