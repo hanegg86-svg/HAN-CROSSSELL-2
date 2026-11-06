@@ -1,6 +1,7 @@
 /**
  * Dealer Actual Reconciliation & Charts (dealer.js)
  * จัดการข้อมูลยอดขายผ่านผู้แทนจำหน่าย (Dealer), จับคู่รหัสโครงการ, กราฟเปรียบเทียบ Ropp vs Dealer Actual
+ * ปรับปรุง: อัปเดตยอดสรุป KPI บน Dashboard ทันทีที่อัปโหลดหรือประมวลผลไฟล์ Dealer สำเร็จ
  */
 
 function handleDealerFile(file) {
@@ -98,8 +99,14 @@ function processDealerCSV(rows) {
   if (elMatchSummary) {
     elMatchSummary.textContent = `จับคู่ตรงกับไฟล์ยอดขายได้ ${matchedDealerList.length.toLocaleString()} แถว (ตัดรายการที่ไม่ตรงออกเรียบร้อยแล้ว)`;
   }
+
   renderDealerTable();
   initDealerComparisonControls();
+
+  // อัปเดตกล่องยอดขายจริงรวม (Total Act) และอัตราความสำเร็จ บน KPI Dashboard ทันที
+  if (typeof updateKpiSummary === 'function') {
+    updateKpiSummary();
+  }
 }
 
 function renderDealerTable() {

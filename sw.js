@@ -1,10 +1,10 @@
 /**
  * Service Worker - sw.js
  * จัดการ Caching ด้วยกลยุทธ์ Network-First สำหรับโหมด Offline PWA
- * อัปเดตเวอร์ชันแคชเป็น v4 สำหรับระบบจัดการรูปภาพประจำกล่องและการสแกน AI
+ * อัปเดตเวอร์ชันแคชเป็น v5 สำหรับการคำนวณ KPI Total Act จาก Dealer CSV
  */
 
-const CACHE_NAME = 'sales-analytics-v4';
+const CACHE_NAME = 'sales-analytics-v5';
 
 // รายการไฟล์ทั้งหมดในโปรเจกต์ที่ต้องแคชไว้ใช้งานออฟไลน์
 const STATIC_ASSETS = [

@@ -1,6 +1,7 @@
 /**
  * Sales Engine & Master Filters (sales-engine.js)
  * จัดการข้อมูลไฟล์ยอดขายหลัก Ropp vs Act, Master Filter, KPI, ตารางโครงการ, Inactive และ Cross-sell
+ * ปรับปรุง: ยอดขายจริงรวม (Total Act) และอัตราความสำเร็จคำนวณจากไฟล์ Dealer CSV (matchedDealerList) โดยตรง
  */
 
 function handleSalesFile(file) {
@@ -374,6 +375,9 @@ function applyMasterProjectFilter() {
   renderProjectTable();
 }
 
+/**
+ * คำนวณสรุป KPI Dashboard โดยคำนวณยอดขายจริงรวม (Total Act) จากไฟล์ Dealer CSV (matchedDealerList)
+ */
 function updateKpiSummary() {
   let filteredRopp = 0;
   let filteredAct = 0;
@@ -381,19 +385,23 @@ function updateKpiSummary() {
   let filteredInactiveRev = 0;
   let filteredCrossSell = 0;
 
+  const proj = selectedMasterProject !== 'all' ? projectsMapGlobal[selectedMasterProject] : null;
+
   if (selectedMasterProject === 'all') {
     projectList.forEach(p => {
       filteredRopp += p.totalRopp;
-      filteredAct += p.totalAct;
       if (p.boughtProducts.length > 1) filteredCrossSell++;
     });
     filteredInactiveCount = inactiveList.length;
     filteredInactiveRev = inactiveList.reduce((acc, curr) => acc + curr.totalPastAct, 0);
+
+    // คำนวณยอดขายจริงรวมจากไฟล์ Dealer (matchedDealerList) ทั้งหมด
+    matchedDealerList.forEach(item => {
+      filteredAct += (displayMode === 'baht' ? item.netAmount : item.actual);
+    });
   } else {
-    const proj = projectsMapGlobal[selectedMasterProject];
     if (proj) {
       filteredRopp = proj.totalRopp;
-      filteredAct = proj.totalAct;
       if (Object.keys(proj.productsAct).length > 1) filteredCrossSell = 1;
     }
     const projInactive = inactiveList.filter(it => 
@@ -403,6 +411,16 @@ function updateKpiSummary() {
     );
     filteredInactiveCount = projInactive.length;
     filteredInactiveRev = projInactive.reduce((acc, curr) => acc + curr.totalPastAct, 0);
+
+    // คำนวณยอดขายจริงเฉพาะโครงการที่เลือกจากไฟล์ Dealer (matchedDealerList)
+    matchedDealerList.forEach(item => {
+      const isMatch = item.projectId === selectedMasterProject || 
+                      item.projectName === selectedMasterProject ||
+                      (proj && (item.projectId === proj.id || item.projectName === proj.name));
+      if (isMatch) {
+        filteredAct += (displayMode === 'baht' ? item.netAmount : item.actual);
+      }
+    });
   }
 
   document.getElementById('kpiTotalRopp').textContent = formatNumber(filteredRopp);
@@ -656,7 +674,7 @@ function renderCrossSellTable() {
               <span>${escapeHtml(p.name)}</span>
               <svg class="w-3.5 h-3.5 text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
             </div>
-            <div class="text-[10px] text-slate-400 font-mono">${escapeHtml(p.id || '-')}</div>
+            <div class="text-[10px] text-slate-400 font-mono mt-0.5">${escapeHtml(p.id || '-')}</div>
           </button>
         </td>
         <td class="py-3 px-3 text-center">
@@ -940,6 +958,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         renderDealerTable();
         updateDealerComparisonCharts();
       }
+      updateKpiSummary();
     });
   }
 
@@ -1049,7 +1068,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
 
-  // Modal Backdrop Click (รวมถึง editSiteVisitModal)
+  // Modal Backdrop Click
   const modals = ['geminiKeyModal', 'siteVisitModal', 'crossSellModal', 'projectModal', 'imageLightboxModal', 'editSiteVisitModal'];
   modals.forEach(mId => {
     const el = document.getElementById(mId);
