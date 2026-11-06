@@ -1,6 +1,7 @@
 /**
  * Sales & Cross-sell Analytics Dashboard - app.js
  * จัดการข้อมูล Ropp vs Act, ผู้แทนจำหน่าย (Dealer), Forecast Matrix,
+ * กราฟเปรียบเทียบ Ropp vs Dealer Actual แต่ละเดือน,
  * ฐานข้อมูล IndexedDB และระบบ AI Weekly Site Visit (gemini-3.5-flash-lite)
  */
 
@@ -249,6 +250,7 @@ let chartProjectsInstance = null;
 let chartProductsInstance = null;
 let chartForecastProductInstance = null;
 let chartForecastProjectInstance = null;
+let chartDealerCompMonthlyInstance = null;
 let chartDealerCompProjectInstance = null;
 let chartDealerCompProductInstance = null;
 
@@ -424,6 +426,8 @@ function updateUIUnitLabels() {
   const elTopProductsTitle = document.getElementById('chartTopProductsTitle');
   if (elTopProductsTitle) elTopProductsTitle.textContent = `ยอดสูงสุดรายกลุ่มสินค้า (จาก Column E - ${unitText})`;
 
+  const elDealerMonthlyTitle = document.getElementById('chartDealerCompMonthlyTitle');
+  if (elDealerMonthlyTitle) elDealerMonthlyTitle.innerHTML = `<span>📈</span> Ropp vs Dealer Actual แต่ละเดือน (${unitText})`;
   const elDealerProjTitle = document.getElementById('chartDealerCompProjectTitle');
   if (elDealerProjTitle) elDealerProjTitle.innerHTML = `<span>🏗️</span> Ropp vs Dealer Actual ใน Top 10 โครงการ (${unitText})`;
   const elDealerProdTitle = document.getElementById('chartDealerCompProductTitle');
@@ -475,7 +479,6 @@ function processSalesCSV(rows) {
   if (!rows || rows.length < 2) return;
   validProjectIdsSet.clear();
 
-  // แก้ไขปัญหาการ Render: ปลดล็อกหน้า Dashboard ขึ้นมาก่อนทันทีเพื่อป้องกัน Chart.js ค้าง
   const dropZone = document.getElementById('dropZone');
   const dashboardSection = document.getElementById('dashboardSection');
   if (dropZone) dropZone.classList.add('hidden');
@@ -489,7 +492,6 @@ function processSalesCSV(rows) {
   let monthRow = row0;
   let typeRow = row1;
 
-  // ตรวจจับ Header 3 แถว (เช่น ReviseOppReport) หรือ 2 แถว
   const hasRoppActInRow2Cols = row2.slice(13).some(c => /\b(ropp|act)\b/i.test(String(c || '').trim()));
   const hasRoppActInRow1Cols = row1.slice(13).some(c => /\b(ropp|act)\b/i.test(String(c || '').trim()));
   const hasRoppActInRow0Cols = row0.slice(13).some(c => /\b(ropp|act)\b/i.test(String(c || '').trim()));
@@ -953,8 +955,37 @@ function initDealerComparisonControls() {
   if (selectedDealerCompProducts.size === 0) {
     selectedDealerCompProducts = new Set(allForecastProductGroups);
   }
+
+  const sMonth = document.getElementById('dealerCompStartMonthSelect');
+  const eMonth = document.getElementById('dealerCompEndMonthSelect');
+  if (sMonth && eMonth && allMonthHeadersGlobal.length > 0) {
+    const opts = allMonthHeadersGlobal.map((m, idx) => `<option value="${idx}">${escapeHtml(m.monthYear)}</option>`).join('');
+    sMonth.innerHTML = opts;
+    eMonth.innerHTML = opts;
+    if (!sMonth.value) sMonth.value = "0";
+    if (!eMonth.value) eMonth.value = String(allMonthHeadersGlobal.length - 1);
+  }
+
   renderDealerCompProjectCheckboxes();
   renderDealerCompProductCheckboxes();
+  updateDealerComparisonCharts();
+}
+
+function handleDealerCompMonthRangeChange(e) {
+  const sMonth = document.getElementById('dealerCompStartMonthSelect');
+  const eMonth = document.getElementById('dealerCompEndMonthSelect');
+  if (!sMonth || !eMonth) return;
+  let startIdx = parseInt(sMonth.value, 10);
+  let endIdx = parseInt(eMonth.value, 10);
+  if (startIdx > endIdx) {
+    if (e.target.id === 'dealerCompStartMonthSelect') {
+      endIdx = startIdx;
+      eMonth.value = String(endIdx);
+    } else {
+      startIdx = endIdx;
+      sMonth.value = String(startIdx);
+    }
+  }
   updateDealerComparisonCharts();
 }
 
@@ -1075,13 +1106,50 @@ function updateDealerCompProductDropdownLabel() {
   }
 }
 
+/**
+ * จับคู่ระบุ Index ของ Header เดือน ให้ตรงกับ Month และ Year ของไฟล์ Dealer
+ */
+function getDealerItemMonthHeaderIndex(item, targetMonthHeaders) {
+  let mNum = parseInt(item.month, 10);
+  if (isNaN(mNum)) {
+    const thaiMonthNames = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+    const idx = thaiMonthNames.findIndex(name => item.month.includes(name.replace('.', '')));
+    if (idx !== -1) mNum = idx + 1;
+  }
+  let yNum = parseInt(item.year, 10);
+  if (!isNaN(yNum)) {
+    yNum = normalizeYear(yNum);
+  }
+  if (isNaN(mNum) || isNaN(yNum)) return -1;
+  const mIdx0 = mNum - 1;
+
+  return targetMonthHeaders.findIndex(h => h.parsedDate && h.parsedDate.year === yNum && h.parsedDate.month === mIdx0);
+}
+
 function updateDealerComparisonCharts() {
   if (!parsedDataRowsGlobal || parsedDataRowsGlobal.length === 0) return;
   const unitSuffix = getUnitSuffix();
 
+  const sMonth = document.getElementById('dealerCompStartMonthSelect');
+  const eMonth = document.getElementById('dealerCompEndMonthSelect');
+  let startIdx = 0;
+  let endIdx = allMonthHeadersGlobal.length - 1;
+
+  if (sMonth && eMonth) {
+    startIdx = parseInt(sMonth.value, 10) || 0;
+    endIdx = parseInt(eMonth.value, 10) || (allMonthHeadersGlobal.length - 1);
+  }
+
+  const selectedMonthHeaders = allMonthHeadersGlobal.slice(startIdx, endIdx + 1);
+
+  // เตรียมโครงสร้างคำนวณรายเดือน
+  const monthlyRoppArr = new Array(selectedMonthHeaders.length).fill(0);
+  const monthlyDealerActArr = new Array(selectedMonthHeaders.length).fill(0);
+
   const projectRoppMap = {};
   const productRoppMap = {};
 
+  // รวมยอด Ropp ตามช่วงเดือนที่เลือก
   parsedDataRowsGlobal.forEach(row => {
     const projectCode = (row[0] || '').trim();
     const projectName = (row[1] || row[2] || projectCode || 'ไม่ระบุชื่อโครงการ').trim();
@@ -1093,10 +1161,12 @@ function updateDealerComparisonCharts() {
 
     const unitPrice = getUnitPrice(productGroup);
     let rowRoppSum = 0;
-    allMonthHeadersGlobal.forEach(m => {
+
+    selectedMonthHeaders.forEach((m, mIdx) => {
       const rUnit = parseNum(row[m.roppCol]);
       const rVal = displayMode === 'baht' ? (rUnit * unitPrice) : rUnit;
       rowRoppSum += rVal;
+      monthlyRoppArr[mIdx] += rVal;
     });
 
     if (!projectRoppMap[projectKey]) {
@@ -1106,6 +1176,7 @@ function updateDealerComparisonCharts() {
     productRoppMap[productGroup] = (productRoppMap[productGroup] || 0) + rowRoppSum;
   });
 
+  // รวมยอด Dealer Actual ตามช่วงเดือนที่เลือก
   const projectDealerActMap = {};
   const productDealerActMap = {};
 
@@ -1116,12 +1187,61 @@ function updateDealerComparisonCharts() {
     if (!selectedDealerCompProjects.has(projectKey)) return;
     if (!selectedDealerCompProducts.has(productGroup)) return;
 
+    // ตรวจสอบว่างวดเดือนของ Dealer ตรงกับช่วงเดือนที่เลือกหรือไม่
+    const matchedMIdx = getDealerItemMonthHeaderIndex(item, selectedMonthHeaders);
+    if (matchedMIdx === -1) return;
+
     const actVal = displayMode === 'baht' ? item.netAmount : item.actual;
 
+    monthlyDealerActArr[matchedMIdx] += actVal;
     projectDealerActMap[projectKey] = (projectDealerActMap[projectKey] || 0) + actVal;
     productDealerActMap[productGroup] = (productDealerActMap[productGroup] || 0) + actVal;
   });
 
+  // 1. กราฟแท่งเปรียบเทียบ Ropp vs Dealer Actual แต่ละเดือน (ใหม่)
+  const canvasMonthlyComp = document.getElementById('dealerCompMonthlyChart');
+  if (canvasMonthlyComp) {
+    const ctxMonthlyComp = canvasMonthlyComp.getContext('2d');
+    if (chartDealerCompMonthlyInstance) chartDealerCompMonthlyInstance.destroy();
+    chartDealerCompMonthlyInstance = new Chart(ctxMonthlyComp, {
+      type: 'bar',
+      data: {
+        labels: selectedMonthHeaders.map(m => m.monthYear),
+        datasets: [
+          {
+            label: `โอกาส (Ropp - ${unitSuffix})`,
+            data: monthlyRoppArr,
+            backgroundColor: '#60a5fa',
+            borderRadius: 4
+          },
+          {
+            label: `ยอดขายจริง Dealer (Actual - ${unitSuffix})`,
+            data: monthlyDealerActArr,
+            backgroundColor: '#059669',
+            borderRadius: 4
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'top', labels: { boxWidth: 12, font: { family: 'Prompt' } } },
+          tooltip: {
+            callbacks: {
+              label: (context) => `${context.dataset.label}: ${formatNumber(context.raw)} ${unitSuffix}`
+            }
+          }
+        },
+        scales: {
+          x: { stacked: false, ticks: { font: { family: 'Prompt', size: 11 } } },
+          y: { stacked: false, ticks: { font: { family: 'Prompt' }, callback: (v) => v.toLocaleString() } }
+        }
+      }
+    });
+  }
+
+  // 2. กราฟ Top 10 โครงการ ตามช่วงเดือนที่เลือก
   const allCompProjectKeys = new Set([...Object.keys(projectRoppMap), ...Object.keys(projectDealerActMap)]);
   const projectCompList = Array.from(allCompProjectKeys).map(key => {
     const roppData = projectRoppMap[key] || { name: key, code: key, ropp: 0 };
@@ -1179,6 +1299,7 @@ function updateDealerComparisonCharts() {
     });
   }
 
+  // 3. กราฟ Top กลุ่มสินค้า ตามช่วงเดือนที่เลือก
   const allCompProductNames = new Set([...Object.keys(productRoppMap), ...Object.keys(productDealerActMap)]);
   const productCompList = Array.from(allCompProductNames).map(prod => {
     const ropp = productRoppMap[prod] || 0;
@@ -2319,7 +2440,7 @@ function sortInactive(column) {
 }
 
 // ==========================================
-// 8. Modals (Cross-sell, Details, Key, AI)
+// 8. Modals (Cross-sell, Details, Key, AI, Lightbox)
 // ==========================================
 function openCrossSellModal() {
   renderCrossSellTable();
@@ -2445,6 +2566,23 @@ function closeModal() {
   const modal = document.getElementById('projectModal');
   if (modal) modal.classList.add('hidden');
   currentModalProjectKey = null;
+}
+
+// Lightbox modal functions
+function openImageLightbox(base64Data, caption) {
+  const modal = document.getElementById('imageLightboxModal');
+  const img = document.getElementById('lightboxImage');
+  const cap = document.getElementById('lightboxCaption');
+  if (modal && img) {
+    img.src = `data:image/jpeg;base64,${base64Data}`;
+    if (cap) cap.textContent = caption || 'รูปถ่ายหน้างาน';
+    modal.classList.remove('hidden');
+  }
+}
+
+function closeImageLightbox() {
+  const modal = document.getElementById('imageLightboxModal');
+  if (modal) modal.classList.add('hidden');
 }
 
 // ==========================================
@@ -2658,6 +2796,8 @@ async function processSiteVisitImagesWithAI() {
         issuesAndRisks: aiResult.issuesAndRisks || '-',
         nextWeekActions: aiResult.nextWeekActions || '-',
         riskLevel: aiResult.riskLevel || 'Low',
+        imageData: imgData.base64Data,
+        mimeType: imgData.mimeType,
         createdAt: new Date().toISOString()
       };
 
@@ -2681,6 +2821,21 @@ async function processSiteVisitImagesWithAI() {
     clearSelectedSiteImages();
     closeSiteVisitModal();
   }, 600);
+}
+
+/**
+ * รองรับการเพิ่มภาพโดยตรงจาก Section สรุปรายงานรายสัปดาห์
+ */
+async function handleDirectSiteVisitUpload(files) {
+  if (!files || files.length === 0) return;
+  if (!geminiApiKey) {
+    alert('กรุณาตั้งค่า Gemini API Key ก่อนใช้งานระบบอ่านรูปภาพ AI');
+    openGeminiKeyModal();
+    return;
+  }
+  selectedSiteFiles = [];
+  handleSiteVisitFilesSelected(files);
+  openSiteVisitModal();
 }
 
 /**
@@ -2762,7 +2917,6 @@ async function loadSiteVisitLogsFromDB() {
 }
 
 function renderWeeklySiteVisitDashboard() {
-  const container = document.getElementById('weeklySummaryContainer');
   const emptyState = document.getElementById('weeklyEmptyState');
   const cardsGrid = document.getElementById('weeklyCardsGrid');
   const filterVal = document.getElementById('weeklyProjectFilter')?.value || 'all';
@@ -2786,7 +2940,7 @@ function renderWeeklySiteVisitDashboard() {
       emptyState.innerHTML = `
         <span class="text-3xl">🔍</span>
         <p class="text-sm font-semibold text-slate-700 mt-2">ไม่พบประวัติการเข้าเยี่ยมสำหรับโครงการนี้</p>
-        <p class="text-xs text-slate-400 mt-0.5">โปรดเลือกโครงการอื่น หรืออัปโหลดรูปภาพรายงานใหม่</p>
+        <p class="text-xs text-slate-400 mt-0.5">โปรดเลือกโครงการอื่น หรือเพิ่มรูปภาพรายงานใหม่</p>
       `;
     }
     if (cardsGrid) cardsGrid.classList.add('hidden');
@@ -2796,7 +2950,6 @@ function renderWeeklySiteVisitDashboard() {
   if (emptyState) emptyState.classList.add('hidden');
   if (cardsGrid) {
     cardsGrid.classList.remove('hidden');
-    // เรียงลำดับจากล่าสุดไปเก่าสุด
     list.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 
     cardsGrid.innerHTML = list.map(item => {
@@ -2808,6 +2961,25 @@ function renderWeeklySiteVisitDashboard() {
       } else if (item.riskLevel === 'Medium') {
         riskBadgeClass = 'risk-badge-medium';
         riskText = 'เฝ้าระวัง (Medium Risk)';
+      }
+
+      let photoStripHtml = '';
+      if (item.imageData) {
+        const jsBase64 = escapeJsString(item.imageData);
+        const jsName = escapeJsString(item.projectName);
+        photoStripHtml = `
+          <div class="mt-2.5 pt-2 border-t border-slate-100">
+            <div class="text-[11px] font-semibold text-slate-500 mb-1.5 flex items-center gap-1">
+              <span>📸</span> ภาพรายงานหน้างาน:
+            </div>
+            <div class="site-photo-strip">
+              <div class="site-photo-thumb" onclick="openImageLightbox('${jsBase64}', '${jsName}')">
+                <img src="data:${item.mimeType || 'image/jpeg'};base64,${item.imageData}" alt="Site Photo">
+                <span class="zoom-icon">🔍 ซูม</span>
+              </div>
+            </div>
+          </div>
+        `;
       }
 
       return `
@@ -2858,6 +3030,8 @@ function renderWeeklySiteVisitDashboard() {
                   <p class="text-emerald-950 leading-relaxed whitespace-pre-line">${escapeHtml(item.nextWeekActions || '-')}</p>
                 </div>
               </div>
+
+              ${photoStripHtml}
             </div>
           </div>
 
@@ -3118,7 +3292,34 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('openGeminiModalBtn')?.addEventListener('click', openGeminiKeyModal);
   document.getElementById('openSiteVisitModalBtn')?.addEventListener('click', openSiteVisitModal);
 
-  // Site Visit Drop Zone
+  // Direct Site Visit Upload in Weekly Section
+  const weeklyDirectInput = document.getElementById('weeklyDirectFileInput');
+  const weeklyInlineZone = document.getElementById('weeklyInlineDropZone');
+
+  if (weeklyDirectInput) {
+    weeklyDirectInput.addEventListener('change', (e) => {
+      handleDirectSiteVisitUpload(e.target.files);
+      e.target.value = '';
+    });
+  }
+
+  if (weeklyInlineZone && weeklyDirectInput) {
+    weeklyInlineZone.addEventListener('click', () => weeklyDirectInput.click());
+    weeklyInlineZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      weeklyInlineZone.classList.add('dropzone-sky-active');
+    });
+    weeklyInlineZone.addEventListener('dragleave', () => {
+      weeklyInlineZone.classList.remove('dropzone-sky-active');
+    });
+    weeklyInlineZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      weeklyInlineZone.classList.remove('dropzone-sky-active');
+      handleDirectSiteVisitUpload(e.dataTransfer.files);
+    });
+  }
+
+  // Site Visit Drop Zone in Modal
   const siteDropZone = document.getElementById('siteVisitDropZone');
   const siteFileInput = document.getElementById('siteVisitFileInput');
   if (siteDropZone && siteFileInput) {
@@ -3162,6 +3363,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('dealerProjectFilter')?.addEventListener('change', renderDealerTable);
   document.getElementById('dealerYearFilter')?.addEventListener('change', renderDealerTable);
   document.getElementById('dealerMonthFilter')?.addEventListener('change', renderDealerTable);
+
+  // Dealer Comparison Month Range Filters
+  document.getElementById('dealerCompStartMonthSelect')?.addEventListener('change', handleDealerCompMonthRangeChange);
+  document.getElementById('dealerCompEndMonthSelect')?.addEventListener('change', handleDealerCompMonthRangeChange);
 
   // Weekly Site Filter
   document.getElementById('weeklyProjectFilter')?.addEventListener('change', renderWeeklySiteVisitDashboard);
@@ -3207,7 +3412,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // Modal Backdrop Click
-  const modals = ['geminiKeyModal', 'siteVisitModal', 'crossSellModal', 'projectModal'];
+  const modals = ['geminiKeyModal', 'siteVisitModal', 'crossSellModal', 'projectModal', 'imageLightboxModal'];
   modals.forEach(mId => {
     const el = document.getElementById(mId);
     if (el) {
