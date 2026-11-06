@@ -1,6 +1,7 @@
 /**
  * Sales & Cross-sell Analytics Dashboard - app.js
  * จัดการข้อมูล Ropp vs Act, ผู้แทนจำหน่าย (Dealer), Forecast Matrix,
+ * Master Project Filter คุมทุกส่วนในจุดเดียว,
  * กราฟเปรียบเทียบ Ropp vs Dealer Actual แต่ละเดือน,
  * ฐานข้อมูล IndexedDB และระบบ AI Weekly Site Visit (gemini-3.5-flash-lite)
  */
@@ -119,6 +120,8 @@ function dbClearStore(storeName) {
 // 2. Global State & Price Master
 // ==========================================
 let geminiApiKey = '';
+let selectedMasterProject = 'all'; // ตัวกรองโครงการหลักจุดเดียวคุมทั้ง App
+
 let unitPrices = {
   "คอนกรีตผสมเสร็จ (CPAC &FC)": 1859,
   "คอนกรีตผสมเสร็จ": 1859,
@@ -210,12 +213,8 @@ let allProjectListGlobal = [];
 let allForecastProductGroups = [];
 let siteVisitLogsGlobal = [];
 
-// Filter Sets
+// Filter Sets สำหรับกลุ่มสินค้า
 let selectedForecastProducts = new Set();
-let selectedForecastProjects = new Set();
-let selectedAnalysisProjects = new Set();
-let selectedAnalysisProducts = new Set();
-let selectedDealerCompProjects = new Set();
 let selectedDealerCompProducts = new Set();
 
 const globalProductColors = {};
@@ -245,9 +244,6 @@ let currentMatrixData = {
 };
 
 // Chart instances
-let chartMonthlyTrendInstance = null;
-let chartProjectsInstance = null;
-let chartProductsInstance = null;
 let chartForecastProductInstance = null;
 let chartForecastProjectInstance = null;
 let chartDealerCompMonthlyInstance = null;
@@ -419,17 +415,10 @@ function updateUIUnitLabels() {
       : 'คำนวณจากแผนโอกาสขายล่วงหน้า (Ropp) เป็นปริมาณหน่วยสินค้า';
   }
 
-  const elMonthlyTitle = document.getElementById('chartMonthlyTrendTitle');
-  if (elMonthlyTitle) elMonthlyTitle.textContent = `เปรียบเทียบ Ropp vs Act รายเดือน (Monthly Trend - ${unitText})`;
-  const elTopProjectsTitle = document.getElementById('chartTopProjectsTitle');
-  if (elTopProjectsTitle) elTopProjectsTitle.textContent = `เปรียบเทียบ Ropp vs Act ใน Top 10 โครงการ (${unitText})`;
-  const elTopProductsTitle = document.getElementById('chartTopProductsTitle');
-  if (elTopProductsTitle) elTopProductsTitle.textContent = `ยอดสูงสุดรายกลุ่มสินค้า (จาก Column E - ${unitText})`;
-
   const elDealerMonthlyTitle = document.getElementById('chartDealerCompMonthlyTitle');
   if (elDealerMonthlyTitle) elDealerMonthlyTitle.innerHTML = `<span>📈</span> Ropp vs Dealer Actual แต่ละเดือน (${unitText})`;
   const elDealerProjTitle = document.getElementById('chartDealerCompProjectTitle');
-  if (elDealerProjTitle) elDealerProjTitle.innerHTML = `<span>🏗️</span> Ropp vs Dealer Actual ใน Top 10 โครงการ (${unitText})`;
+  if (elDealerProjTitle) elDealerProjTitle.innerHTML = `<span>🏗️</span> Ropp vs Dealer Actual ใน Top โครงการ (${unitText})`;
   const elDealerProdTitle = document.getElementById('chartDealerCompProductTitle');
   if (elDealerProdTitle) elDealerProdTitle.innerHTML = `<span>📦</span> Ropp vs Dealer Actual รายกลุ่มสินค้า (${unitText})`;
 
@@ -560,6 +549,7 @@ function processSalesCSV(rows) {
 
   const prodGroupSet = new Set();
   const projectsMapUnique = new Map();
+  const projectsMap = {};
 
   dataRows.forEach(r => {
     const projectCode = (r[0] || '').trim();
@@ -578,20 +568,93 @@ function processSalesCSV(rows) {
         key: projectKey
       });
     }
+
+    if (!projectsMap[projectKey]) {
+      projectsMap[projectKey] = {
+        id: projectCode,
+        name: projectName,
+        key: projectKey,
+        totalRopp: 0,
+        totalAct: 0,
+        productsAct: {},
+        productsRopp: {},
+        productDetails: {}
+      };
+    }
+
+    const unitPrice = getUnitPrice(p);
+    let rowRoppSum = 0;
+    let rowActSum = 0;
+    let rowRoppUnitSum = 0;
+    let rowActUnitSum = 0;
+
+    monthHeaders.forEach(m => {
+      const rUnit = parseNum(r[m.roppCol]);
+      const aUnit = parseNum(r[m.actCol]);
+      rowRoppUnitSum += rUnit;
+      rowActUnitSum += aUnit;
+
+      const rVal = displayMode === 'baht' ? (rUnit * unitPrice) : rUnit;
+      const aVal = displayMode === 'baht' ? (aUnit * unitPrice) : aUnit;
+
+      rowRoppSum += rVal;
+      rowActSum += aVal;
+    });
+
+    projectsMap[projectKey].totalRopp += rowRoppSum;
+    projectsMap[projectKey].totalAct += rowActSum;
+
+    if (!projectsMap[projectKey].productDetails[p]) {
+      projectsMap[projectKey].productDetails[p] = {
+        productGroup: p,
+        unitPrice: unitPrice,
+        roppUnit: 0,
+        actUnit: 0,
+        roppBaht: 0,
+        actBaht: 0
+      };
+    }
+    projectsMap[projectKey].productDetails[p].roppUnit += rowRoppUnitSum;
+    projectsMap[projectKey].productDetails[p].actUnit += rowActUnitSum;
+    projectsMap[projectKey].productDetails[p].roppBaht += (rowRoppUnitSum * unitPrice);
+    projectsMap[projectKey].productDetails[p].actBaht += (rowActUnitSum * unitPrice);
+
+    if (rowActSum > 0) {
+      projectsMap[projectKey].productsAct[p] = (projectsMap[projectKey].productsAct[p] || 0) + rowActSum;
+    }
+    if (rowRoppSum > 0) {
+      projectsMap[projectKey].productsRopp[p] = (projectsMap[projectKey].productsRopp[p] || 0) + rowRoppSum;
+    }
   });
+
+  projectsMapGlobal = projectsMap;
+  const unitSuffix = getUnitSuffix();
+
+  projectList = Object.values(projectsMap).map(p => {
+    const rate = p.totalRopp > 0 ? (p.totalAct / p.totalRopp) * 100 : 0;
+    const boughtProducts = Object.keys(p.productsAct);
+    const oppProducts = Object.entries(p.productsRopp)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, val]) => `${name} (${formatNumber(val)} ${unitSuffix})`);
+
+    return {
+      ...p,
+      rate: rate,
+      boughtProducts: boughtProducts,
+      topOppProducts: oppProducts.slice(0, 3)
+    };
+  });
+
+  crossSellProjectsList = projectList.filter(p => p.boughtProducts.length > 1);
 
   allForecastProductGroups = Array.from(prodGroupSet).sort((a, b) => a.localeCompare(b, 'th'));
   if (selectedForecastProducts.size === 0) selectedForecastProducts = new Set(allForecastProductGroups);
-  if (selectedAnalysisProducts.size === 0) selectedAnalysisProducts = new Set(allForecastProductGroups);
+  if (selectedDealerCompProducts.size === 0) selectedDealerCompProducts = new Set(allForecastProductGroups);
 
   allProjectListGlobal = Array.from(projectsMapUnique.values()).sort((a, b) => a.name.localeCompare(b.name, 'th'));
-  if (selectedForecastProjects.size === 0) selectedForecastProjects = new Set(allProjectListGlobal.map(p => p.key));
-  if (selectedAnalysisProjects.size === 0) selectedAnalysisProjects = new Set(allProjectListGlobal.map(p => p.key));
 
   inactiveList = [];
   missingPriceProducts.clear();
-  let grandTotalRopp = 0;
-  let grandTotalAct = 0;
 
   dataRows.forEach(row => {
     const projectCode = (row[0] || '').trim();
@@ -612,14 +675,8 @@ function processSalesCSV(rows) {
     let pastMonthsCountWithSales = 0;
 
     monthHeaders.forEach(m => {
-      const rUnit = parseNum(row[m.roppCol]);
       const aUnit = parseNum(row[m.actCol]);
-
-      const rVal = displayMode === 'baht' ? (rUnit * unitPrice) : rUnit;
       const aVal = displayMode === 'baht' ? (aUnit * unitPrice) : aUnit;
-
-      grandTotalRopp += rVal;
-      grandTotalAct += aVal;
 
       let isNotFuture = true;
       if (m.parsedDate) {
@@ -679,21 +736,11 @@ function processSalesCSV(rows) {
     banner.classList.add('hidden');
   }
 
-  document.getElementById('kpiTotalRopp').textContent = formatNumber(grandTotalRopp);
-  document.getElementById('kpiTotalAct').textContent = formatNumber(grandTotalAct);
-  const overallRate = grandTotalRopp > 0 ? ((grandTotalAct / grandTotalRopp) * 100).toFixed(1) : 0;
-  document.getElementById('kpiRealizeRate').textContent = `${overallRate}%`;
-
-  const totalInactivePastRev = inactiveList.reduce((acc, curr) => acc + curr.totalPastAct, 0);
-  document.getElementById('kpiInactiveCount').textContent = `${inactiveList.length} รายการ`;
-  document.getElementById('kpiInactiveRevenue').textContent = `ในอดีต: ${formatNumber(totalInactivePastRev)} ${getUnitSuffix()}`;
-
-  renderInactiveTable();
+  populateMasterProjectSelect();
   initForecastControls();
-  initAnalysisDateRange();
   initDealerComparisonControls();
   updateUIUnitLabels();
-  populateWeeklyProjectSelects();
+  applyMasterProjectFilter(); // คำนวณและอัปเดตทุกระบบพร้อมกัน
 }
 
 function handlePriceFile(file) {
@@ -750,7 +797,6 @@ function handleDealerFile(file) {
 function processDealerCSV(rows) {
   if (!rows || rows.length === 0) return;
   matchedDealerList = [];
-  const projectOptionsMap = new Map();
   const yearOptionsSet = new Set();
   const monthOptionsSet = new Set();
 
@@ -785,9 +831,6 @@ function processDealerCSV(rows) {
       netAmount: netAmountVal
     });
 
-    if (!projectOptionsMap.has(projectSiteId)) {
-      projectOptionsMap.set(projectSiteId, projectName);
-    }
     if (yearVal !== '-' && yearVal !== '') {
       yearOptionsSet.add(yearVal);
     }
@@ -795,17 +838,6 @@ function processDealerCSV(rows) {
       monthOptionsSet.add(monthVal);
     }
   });
-
-  const dealerProjectSelect = document.getElementById('dealerProjectFilter');
-  if (dealerProjectSelect) {
-    let projOptions = '<option value="all">โครงการทั้งหมด</option>';
-    Array.from(projectOptionsMap.entries())
-      .sort((a, b) => a[1].localeCompare(b[1], 'th'))
-      .forEach(([id, name]) => {
-        projOptions += `<option value="${escapeHtml(id)}">${escapeHtml(name)} (${escapeHtml(id)})</option>`;
-      });
-    dealerProjectSelect.innerHTML = projOptions;
-  }
 
   const dealerYearSelect = document.getElementById('dealerYearFilter');
   if (dealerYearSelect) {
@@ -846,16 +878,102 @@ function processDealerCSV(rows) {
   initDealerComparisonControls();
 }
 
+// ==========================================
+// 5. Master Project Filter: All-in-One Link
+// ==========================================
+function populateMasterProjectSelect() {
+  const masterSelect = document.getElementById('masterProjectSelect');
+  const modalSiteSelect = document.getElementById('modalSiteProjectSelect');
+  if (!masterSelect) return;
+
+  let optionsHtml = '<option value="all">เลือกโครงการทั้งหมด</option>';
+  allProjectListGlobal.forEach(p => {
+    optionsHtml += `<option value="${escapeHtml(p.key)}">${escapeHtml(p.name)} (${escapeHtml(p.id || '-')})</option>`;
+  });
+
+  masterSelect.innerHTML = optionsHtml;
+  masterSelect.value = selectedMasterProject;
+
+  if (modalSiteSelect) {
+    let modalOptions = '<option value="auto">🤖 ให้อ่านและระบุอัตโนมัติจากภาพ</option>';
+    allProjectListGlobal.forEach(p => {
+      modalOptions += `<option value="${escapeHtml(p.key)}">${escapeHtml(p.name)} (${escapeHtml(p.id || '-')})</option>`;
+    });
+    modalSiteSelect.innerHTML = modalOptions;
+  }
+}
+
+/**
+ * ฟังก์ชันกลาง: เมื่อเลือกโครงการหลักด้านบน จะกระจายคำสั่งอัปเดตทุกโมดูลในคลิกเดียว
+ */
+function applyMasterProjectFilter() {
+  updateKpiSummary();
+  renderWeeklySiteVisitDashboard();
+  renderDealerTable();
+  updateDealerComparisonCharts();
+  updateForecastProductChart();
+  updateForecastProjectChart();
+  updateForecastMatrix();
+  renderInactiveTable();
+  renderProjectTable();
+}
+
+function updateKpiSummary() {
+  let filteredRopp = 0;
+  let filteredAct = 0;
+  let filteredInactiveCount = 0;
+  let filteredInactiveRev = 0;
+  let filteredCrossSell = 0;
+
+  if (selectedMasterProject === 'all') {
+    projectList.forEach(p => {
+      filteredRopp += p.totalRopp;
+      filteredAct += p.totalAct;
+      if (p.boughtProducts.length > 1) filteredCrossSell++;
+    });
+    filteredInactiveCount = inactiveList.length;
+    filteredInactiveRev = inactiveList.reduce((acc, curr) => acc + curr.totalPastAct, 0);
+  } else {
+    const proj = projectsMapGlobal[selectedMasterProject];
+    if (proj) {
+      filteredRopp = proj.totalRopp;
+      filteredAct = proj.totalAct;
+      if (Object.keys(proj.productsAct).length > 1) filteredCrossSell = 1;
+    }
+    const projInactive = inactiveList.filter(it => 
+      it.projectCode === selectedMasterProject || 
+      it.projectName === selectedMasterProject ||
+      (proj && (it.projectCode === proj.id || it.projectName === proj.name))
+    );
+    filteredInactiveCount = projInactive.length;
+    filteredInactiveRev = projInactive.reduce((acc, curr) => acc + curr.totalPastAct, 0);
+  }
+
+  document.getElementById('kpiTotalRopp').textContent = formatNumber(filteredRopp);
+  document.getElementById('kpiTotalAct').textContent = formatNumber(filteredAct);
+  const rate = filteredRopp > 0 ? ((filteredAct / filteredRopp) * 100).toFixed(1) : 0;
+  document.getElementById('kpiRealizeRate').textContent = `${rate}%`;
+
+  document.getElementById('kpiCrossSellCount').textContent = filteredCrossSell;
+  document.getElementById('kpiInactiveCount').textContent = `${filteredInactiveCount} รายการ`;
+  document.getElementById('kpiInactiveRevenue').textContent = `ในอดีต: ${formatNumber(filteredInactiveRev)} ${getUnitSuffix()}`;
+}
+
+// ==========================================
+// 6. Dealer Table & Excel Export
+// ==========================================
 function renderDealerTable() {
   const tbody = document.getElementById('dealerTableBody');
   if (!tbody) return;
   const searchTerm = (document.getElementById('dealerSearchInput')?.value || '').toLowerCase().trim();
-  const selectedProject = document.getElementById('dealerProjectFilter')?.value || 'all';
   const selectedYear = document.getElementById('dealerYearFilter')?.value || 'all';
   const selectedMonth = document.getElementById('dealerMonthFilter')?.value || 'all';
 
   const filtered = matchedDealerList.filter(item => {
-    if (selectedProject !== 'all' && item.projectId !== selectedProject) return false;
+    if (selectedMasterProject !== 'all') {
+      const matchProj = item.projectId === selectedMasterProject || item.projectName === selectedMasterProject;
+      if (!matchProj) return false;
+    }
     if (selectedYear !== 'all' && item.year !== selectedYear) return false;
     if (selectedMonth !== 'all' && item.month !== selectedMonth) return false;
     if (searchTerm) {
@@ -906,13 +1024,15 @@ function renderDealerTable() {
 }
 
 function exportDealerToExcel() {
-  const selectedProject = document.getElementById('dealerProjectFilter')?.value || 'all';
   const selectedYear = document.getElementById('dealerYearFilter')?.value || 'all';
   const selectedMonth = document.getElementById('dealerMonthFilter')?.value || 'all';
   const searchTerm = (document.getElementById('dealerSearchInput')?.value || '').toLowerCase().trim();
 
   const filtered = matchedDealerList.filter(item => {
-    if (selectedProject !== 'all' && item.projectId !== selectedProject) return false;
+    if (selectedMasterProject !== 'all') {
+      const matchProj = item.projectId === selectedMasterProject || item.projectName === selectedMasterProject;
+      if (!matchProj) return false;
+    }
     if (selectedYear !== 'all' && item.year !== selectedYear) return false;
     if (selectedMonth !== 'all' && item.month !== selectedMonth) return false;
     if (searchTerm) {
@@ -946,12 +1066,9 @@ function exportDealerToExcel() {
 }
 
 // ==========================================
-// 5. Dealer Comparison Controls & Charts
+// 7. Dealer Comparison Controls & Charts
 // ==========================================
 function initDealerComparisonControls() {
-  if (selectedDealerCompProjects.size === 0) {
-    selectedDealerCompProjects = new Set(allProjectListGlobal.map(p => p.key));
-  }
   if (selectedDealerCompProducts.size === 0) {
     selectedDealerCompProducts = new Set(allForecastProductGroups);
   }
@@ -966,7 +1083,6 @@ function initDealerComparisonControls() {
     if (!eMonth.value) eMonth.value = String(allMonthHeadersGlobal.length - 1);
   }
 
-  renderDealerCompProjectCheckboxes();
   renderDealerCompProductCheckboxes();
   updateDealerComparisonCharts();
 }
@@ -987,68 +1103,6 @@ function handleDealerCompMonthRangeChange(e) {
     }
   }
   updateDealerComparisonCharts();
-}
-
-function renderDealerCompProjectCheckboxes() {
-  const elList = document.getElementById('dealerCompProjectCheckboxList');
-  if (!elList) return;
-  const search = (document.getElementById('dealerCompProjectSearchInput')?.value || '').toLowerCase().trim();
-  const filtered = allProjectListGlobal.filter(p => p.name.toLowerCase().includes(search) || (p.id && p.id.toLowerCase().includes(search)));
-
-  if (filtered.length === 0) {
-    elList.innerHTML = `<div class="text-slate-400 py-1 text-center">ไม่พบโครงการ</div>`;
-    return;
-  }
-
-  elList.innerHTML = filtered.map(p => {
-    const isChecked = selectedDealerCompProjects.has(p.key);
-    const jsKey = escapeJsString(p.key);
-    return `
-      <label class="flex items-center gap-2 hover:bg-slate-50 p-1 rounded cursor-pointer transition-colors">
-        <input type="checkbox" value="${escapeHtml(p.key)}" ${isChecked ? 'checked' : ''} onchange="toggleDealerCompProject('${jsKey}')"
-               class="rounded text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5">
-        <div class="truncate flex-1">
-          <span class="font-medium text-slate-800">${escapeHtml(p.name)}</span>
-          <span class="text-[10px] text-slate-400 ml-1">(${escapeHtml(p.id || '-')})</span>
-        </div>
-      </label>
-    `;
-  }).join('');
-  updateDealerCompProjectDropdownLabel();
-}
-
-function toggleDealerCompProject(projKey) {
-  if (selectedDealerCompProjects.has(projKey)) {
-    selectedDealerCompProjects.delete(projKey);
-  } else {
-    selectedDealerCompProjects.add(projKey);
-  }
-  updateDealerCompProjectDropdownLabel();
-  updateDealerComparisonCharts();
-}
-
-function selectAllDealerCompProjects(shouldSelectAll) {
-  if (shouldSelectAll) {
-    selectedDealerCompProjects = new Set(allProjectListGlobal.map(p => p.key));
-  } else {
-    selectedDealerCompProjects.clear();
-  }
-  renderDealerCompProjectCheckboxes();
-  updateDealerComparisonCharts();
-}
-
-function updateDealerCompProjectDropdownLabel() {
-  const label = document.getElementById('dealerCompProjectDropdownLabel');
-  if (!label) return;
-  const count = selectedDealerCompProjects.size;
-  const total = allProjectListGlobal.length;
-  if (count === total) {
-    label.textContent = 'เลือกโครงการทั้งหมด';
-  } else if (count === 0) {
-    label.textContent = 'ไม่ได้เลือกโครงการ (0)';
-  } else {
-    label.textContent = `เลือก ${count} จาก ${total} โครงการ`;
-  }
 }
 
 function renderDealerCompProductCheckboxes() {
@@ -1106,9 +1160,6 @@ function updateDealerCompProductDropdownLabel() {
   }
 }
 
-/**
- * จับคู่ระบุ Index ของ Header เดือน ให้ตรงกับ Month และ Year ของไฟล์ Dealer
- */
 function getDealerItemMonthHeaderIndex(item, targetMonthHeaders) {
   let mNum = parseInt(item.month, 10);
   if (isNaN(mNum)) {
@@ -1142,21 +1193,21 @@ function updateDealerComparisonCharts() {
 
   const selectedMonthHeaders = allMonthHeadersGlobal.slice(startIdx, endIdx + 1);
 
-  // เตรียมโครงสร้างคำนวณรายเดือน
   const monthlyRoppArr = new Array(selectedMonthHeaders.length).fill(0);
   const monthlyDealerActArr = new Array(selectedMonthHeaders.length).fill(0);
 
   const projectRoppMap = {};
   const productRoppMap = {};
 
-  // รวมยอด Ropp ตามช่วงเดือนที่เลือก
   parsedDataRowsGlobal.forEach(row => {
     const projectCode = (row[0] || '').trim();
     const projectName = (row[1] || row[2] || projectCode || 'ไม่ระบุชื่อโครงการ').trim();
     const projectKey = projectCode || projectName;
     const productGroup = (row[4] || 'อื่นๆ').trim();
 
-    if (!selectedDealerCompProjects.has(projectKey)) return;
+    if (selectedMasterProject !== 'all') {
+      if (projectKey !== selectedMasterProject && projectCode !== selectedMasterProject && projectName !== selectedMasterProject) return;
+    }
     if (!selectedDealerCompProducts.has(productGroup)) return;
 
     const unitPrice = getUnitPrice(productGroup);
@@ -1176,7 +1227,6 @@ function updateDealerComparisonCharts() {
     productRoppMap[productGroup] = (productRoppMap[productGroup] || 0) + rowRoppSum;
   });
 
-  // รวมยอด Dealer Actual ตามช่วงเดือนที่เลือก
   const projectDealerActMap = {};
   const productDealerActMap = {};
 
@@ -1184,10 +1234,11 @@ function updateDealerComparisonCharts() {
     const projectKey = item.projectId;
     const productGroup = item.productGroup;
 
-    if (!selectedDealerCompProjects.has(projectKey)) return;
+    if (selectedMasterProject !== 'all') {
+      if (item.projectId !== selectedMasterProject && item.projectName !== selectedMasterProject) return;
+    }
     if (!selectedDealerCompProducts.has(productGroup)) return;
 
-    // ตรวจสอบว่างวดเดือนของ Dealer ตรงกับช่วงเดือนที่เลือกหรือไม่
     const matchedMIdx = getDealerItemMonthHeaderIndex(item, selectedMonthHeaders);
     if (matchedMIdx === -1) return;
 
@@ -1198,7 +1249,7 @@ function updateDealerComparisonCharts() {
     productDealerActMap[productGroup] = (productDealerActMap[productGroup] || 0) + actVal;
   });
 
-  // 1. กราฟแท่งเปรียบเทียบ Ropp vs Dealer Actual แต่ละเดือน (ใหม่)
+  // กราฟ 1: Ropp vs Dealer Actual แต่ละเดือน
   const canvasMonthlyComp = document.getElementById('dealerCompMonthlyChart');
   if (canvasMonthlyComp) {
     const ctxMonthlyComp = canvasMonthlyComp.getContext('2d');
@@ -1241,7 +1292,7 @@ function updateDealerComparisonCharts() {
     });
   }
 
-  // 2. กราฟ Top 10 โครงการ ตามช่วงเดือนที่เลือก
+  // กราฟ 2: Top โครงการ
   const allCompProjectKeys = new Set([...Object.keys(projectRoppMap), ...Object.keys(projectDealerActMap)]);
   const projectCompList = Array.from(allCompProjectKeys).map(key => {
     const roppData = projectRoppMap[key] || { name: key, code: key, ropp: 0 };
@@ -1299,7 +1350,7 @@ function updateDealerComparisonCharts() {
     });
   }
 
-  // 3. กราฟ Top กลุ่มสินค้า ตามช่วงเดือนที่เลือก
+  // กราฟ 3: Top กลุ่มสินค้า
   const allCompProductNames = new Set([...Object.keys(productRoppMap), ...Object.keys(productDealerActMap)]);
   const productCompList = Array.from(allCompProductNames).map(prod => {
     const ropp = productRoppMap[prod] || 0;
@@ -1357,7 +1408,7 @@ function updateDealerComparisonCharts() {
 }
 
 // ==========================================
-// 6. Forecast Controls & Matrix Logic
+// 8. Forecast Controls & Matrix Logic
 // ==========================================
 function initForecastControls() {
   if (!availableForecastMonths || availableForecastMonths.length === 0) return;
@@ -1380,7 +1431,6 @@ function initForecastControls() {
   if (mMonth) mMonth.value = "0";
 
   renderForecastProductCheckboxes();
-  renderForecastProjectCheckboxes();
   updateForecastProductChart();
   updateForecastProjectChart();
   updateForecastMatrix();
@@ -1445,72 +1495,6 @@ function updateForecastProductDropdownLabel() {
   }
 }
 
-function renderForecastProjectCheckboxes() {
-  const elList = document.getElementById('forecastProjectCheckboxList');
-  if (!elList) return;
-  const search = (document.getElementById('forecastProjectSearchInput')?.value || '').toLowerCase().trim();
-  const filtered = allProjectListGlobal.filter(p => p.name.toLowerCase().includes(search) || (p.id && p.id.toLowerCase().includes(search)));
-
-  if (filtered.length === 0) {
-    elList.innerHTML = `<div class="text-slate-400 py-1 text-center">ไม่พบโครงการ</div>`;
-    return;
-  }
-
-  elList.innerHTML = filtered.map(p => {
-    const isChecked = selectedForecastProjects.has(p.key);
-    const jsKey = escapeJsString(p.key);
-    return `
-      <label class="flex items-center gap-2 hover:bg-slate-50 p-1 rounded cursor-pointer transition-colors">
-        <input type="checkbox" value="${escapeHtml(p.key)}" ${isChecked ? 'checked' : ''} onchange="toggleForecastProject('${jsKey}')"
-               class="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5">
-        <div class="truncate flex-1">
-          <span class="font-medium text-slate-800">${escapeHtml(p.name)}</span>
-          <span class="text-[10px] text-slate-400 ml-1">(${escapeHtml(p.id || '-')})</span>
-        </div>
-      </label>
-    `;
-  }).join('');
-  updateForecastProjectDropdownLabel();
-}
-
-function toggleForecastProject(projKey) {
-  if (selectedForecastProjects.has(projKey)) {
-    selectedForecastProjects.delete(projKey);
-  } else {
-    selectedForecastProjects.add(projKey);
-  }
-  updateForecastProjectDropdownLabel();
-  updateForecastProductChart();
-  updateForecastProjectChart();
-  updateForecastMatrix();
-}
-
-function selectAllForecastProjects(shouldSelectAll) {
-  if (shouldSelectAll) {
-    selectedForecastProjects = new Set(allProjectListGlobal.map(p => p.key));
-  } else {
-    selectedForecastProjects.clear();
-  }
-  renderForecastProjectCheckboxes();
-  updateForecastProductChart();
-  updateForecastProjectChart();
-  updateForecastMatrix();
-}
-
-function updateForecastProjectDropdownLabel() {
-  const label = document.getElementById('forecastProjectDropdownLabel');
-  if (!label) return;
-  const count = selectedForecastProjects.size;
-  const total = allProjectListGlobal.length;
-  if (count === total) {
-    label.textContent = 'เลือกโครงการทั้งหมด';
-  } else if (count === 0) {
-    label.textContent = 'ไม่ได้เลือกโครงการ (0)';
-  } else {
-    label.textContent = `เลือก ${count} จาก ${total} โครงการ`;
-  }
-}
-
 function handleForecastProductRangeChange(e) {
   const fStart = document.getElementById('forecastStartSelect');
   const fEnd = document.getElementById('forecastEndSelect');
@@ -1544,7 +1528,10 @@ function updateForecastProductChart() {
     const projectCode = (row[0] || '').trim();
     const projectName = (row[1] || row[2] || projectCode || 'ไม่ระบุชื่อโครงการ').trim();
     const projectKey = projectCode || projectName;
-    if (!selectedForecastProjects.has(projectKey)) return;
+
+    if (selectedMasterProject !== 'all') {
+      if (projectKey !== selectedMasterProject && projectCode !== selectedMasterProject && projectName !== selectedMasterProject) return;
+    }
 
     const productGroup = (row[4] || 'อื่นๆ').trim();
     if (!selectedForecastProducts.has(productGroup)) return;
@@ -1620,7 +1607,10 @@ function updateForecastProjectChart() {
     const projectCode = (row[0] || '').trim();
     const projectName = (row[1] || row[2] || projectCode || 'ไม่ระบุชื่อโครงการ').trim();
     const projectKey = projectCode || projectName;
-    if (!selectedForecastProjects.has(projectKey)) return;
+
+    if (selectedMasterProject !== 'all') {
+      if (projectKey !== selectedMasterProject && projectCode !== selectedMasterProject && projectName !== selectedMasterProject) return;
+    }
 
     const productGroup = (row[4] || 'อื่นๆ').trim();
     if (!selectedForecastProducts.has(productGroup)) return;
@@ -1701,7 +1691,10 @@ function updateForecastMatrix() {
     const projectCode = (row[0] || '').trim();
     const projectName = (row[1] || row[2] || projectCode || 'ไม่ระบุชื่อโครงการ').trim();
     const projectKey = projectCode || projectName;
-    if (!selectedForecastProjects.has(projectKey)) return;
+
+    if (selectedMasterProject !== 'all') {
+      if (projectKey !== selectedMasterProject && projectCode !== selectedMasterProject && projectName !== selectedMasterProject) return;
+    }
 
     const productGroup = (row[4] || 'อื่นๆ').trim();
     if (!selectedForecastProducts.has(productGroup)) return;
@@ -1836,433 +1829,20 @@ function exportForecastMatrixToExcel() {
 }
 
 // ==========================================
-// 7. Ropp vs Act Date Range & Analytics
+// 9. Inactive & Project Analysis Tables
 // ==========================================
-function initAnalysisDateRange() {
-  const aStart = document.getElementById('analysisStartSelect');
-  const aEnd = document.getElementById('analysisEndSelect');
-  if (!aStart || !aEnd || !allMonthHeadersGlobal || allMonthHeadersGlobal.length === 0) return;
-
-  const opts = allMonthHeadersGlobal.map((m, idx) => `<option value="${idx}">${escapeHtml(m.monthYear)}</option>`).join('');
-  aStart.innerHTML = opts;
-  aEnd.innerHTML = opts;
-
-  aStart.value = "0";
-  aEnd.value = String(allMonthHeadersGlobal.length - 1);
-
-  renderAnalysisProjectCheckboxes();
-  renderAnalysisProductCheckboxes();
-  updateAnalysisByDateRange();
-}
-
-function handleAnalysisRangeChange(e) {
-  const aStart = document.getElementById('analysisStartSelect');
-  const aEnd = document.getElementById('analysisEndSelect');
-  if (!aStart || !aEnd) return;
-  let startIdx = parseInt(aStart.value, 10);
-  let endIdx = parseInt(aEnd.value, 10);
-  if (startIdx > endIdx) {
-    if (e.target.id === 'analysisStartSelect') {
-      endIdx = startIdx;
-      aEnd.value = String(endIdx);
-    } else {
-      startIdx = endIdx;
-      aStart.value = String(startIdx);
-    }
-  }
-  updateAnalysisByDateRange();
-}
-
-function renderAnalysisProjectCheckboxes() {
-  const elList = document.getElementById('analysisProjectCheckboxList');
-  if (!elList) return;
-  const search = (document.getElementById('analysisProjectSearchInput')?.value || '').toLowerCase().trim();
-  const filtered = allProjectListGlobal.filter(p => p.name.toLowerCase().includes(search) || (p.id && p.id.toLowerCase().includes(search)));
-
-  if (filtered.length === 0) {
-    elList.innerHTML = `<div class="text-slate-400 py-1 text-center">ไม่พบโครงการ</div>`;
-    return;
-  }
-
-  elList.innerHTML = filtered.map(p => {
-    const isChecked = selectedAnalysisProjects.has(p.key);
-    const jsKey = escapeJsString(p.key);
-    return `
-      <label class="flex items-center gap-2 hover:bg-slate-50 p-1 rounded cursor-pointer transition-colors">
-        <input type="checkbox" value="${escapeHtml(p.key)}" ${isChecked ? 'checked' : ''} onchange="toggleAnalysisProject('${jsKey}')"
-               class="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5">
-        <div class="truncate flex-1">
-          <span class="font-medium text-slate-800">${escapeHtml(p.name)}</span>
-          <span class="text-[10px] text-slate-400 ml-1">(${escapeHtml(p.id || '-')})</span>
-        </div>
-      </label>
-    `;
-  }).join('');
-  updateAnalysisProjectDropdownLabel();
-}
-
-function toggleAnalysisProject(projKey) {
-  if (selectedAnalysisProjects.has(projKey)) {
-    selectedAnalysisProjects.delete(projKey);
-  } else {
-    selectedAnalysisProjects.add(projKey);
-  }
-  updateAnalysisProjectDropdownLabel();
-  updateAnalysisByDateRange();
-}
-
-function selectAllAnalysisProjects(shouldSelectAll) {
-  if (shouldSelectAll) {
-    selectedAnalysisProjects = new Set(allProjectListGlobal.map(p => p.key));
-  } else {
-    selectedAnalysisProjects.clear();
-  }
-  renderAnalysisProjectCheckboxes();
-  updateAnalysisByDateRange();
-}
-
-function updateAnalysisProjectDropdownLabel() {
-  const label = document.getElementById('analysisProjectDropdownLabel');
-  if (!label) return;
-  const count = selectedAnalysisProjects.size;
-  const total = allProjectListGlobal.length;
-  if (count === total) {
-    label.textContent = 'เลือกโครงการทั้งหมด';
-  } else if (count === 0) {
-    label.textContent = 'ไม่ได้เลือกโครงการ (0)';
-  } else {
-    label.textContent = `เลือก ${count} จาก ${total} โครงการ`;
-  }
-}
-
-function renderAnalysisProductCheckboxes() {
-  const elList = document.getElementById('analysisProductCheckboxList');
-  if (!elList) return;
-  if (!allForecastProductGroups || allForecastProductGroups.length === 0) {
-    elList.innerHTML = `<div class="text-slate-400 py-1 text-center">ไม่พบกลุ่มสินค้า</div>`;
-    return;
-  }
-  elList.innerHTML = allForecastProductGroups.map(p => {
-    const isChecked = selectedAnalysisProducts.has(p);
-    const jsVal = escapeJsString(p);
-    return `
-      <label class="flex items-center gap-2 hover:bg-slate-50 p-1 rounded cursor-pointer transition-colors">
-        <input type="checkbox" value="${escapeHtml(p)}" ${isChecked ? 'checked' : ''} onchange="toggleAnalysisProduct('${jsVal}')"
-               class="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5">
-        <span class="truncate flex-1" title="${escapeHtml(p)}">${escapeHtml(p)}</span>
-      </label>
-    `;
-  }).join('');
-  updateAnalysisProductDropdownLabel();
-}
-
-function toggleAnalysisProduct(prodName) {
-  if (selectedAnalysisProducts.has(prodName)) {
-    selectedAnalysisProducts.delete(prodName);
-  } else {
-    selectedAnalysisProducts.add(prodName);
-  }
-  updateAnalysisProductDropdownLabel();
-  updateAnalysisByDateRange();
-}
-
-function selectAllAnalysisProducts(shouldSelectAll) {
-  if (shouldSelectAll) {
-    selectedAnalysisProducts = new Set(allForecastProductGroups);
-  } else {
-    selectedAnalysisProducts.clear();
-  }
-  renderAnalysisProductCheckboxes();
-  updateAnalysisByDateRange();
-}
-
-function updateAnalysisProductDropdownLabel() {
-  const label = document.getElementById('analysisProductDropdownLabel');
-  if (!label) return;
-  const count = selectedAnalysisProducts.size;
-  const total = allForecastProductGroups.length;
-  if (count === total) {
-    label.textContent = 'เลือกกลุ่มสินค้าทั้งหมด';
-  } else if (count === 0) {
-    label.textContent = 'ไม่ได้เลือกกลุ่มสินค้า (0)';
-  } else {
-    label.textContent = `เลือก ${count} จาก ${total} สินค้า`;
-  }
-}
-
-function updateAnalysisByDateRange() {
-  const aStart = document.getElementById('analysisStartSelect');
-  const aEnd = document.getElementById('analysisEndSelect');
-  if (!aStart || !aEnd) return;
-  const startIdx = parseInt(aStart.value, 10);
-  const endIdx = parseInt(aEnd.value, 10);
-  const selectedMonths = allMonthHeadersGlobal.slice(startIdx, endIdx + 1);
-
-  const projectsMap = {};
-  const productGroupsMap = {};
-  const monthlyAggregates = selectedMonths.map(m => ({
-    label: m.monthYear,
-    ropp: 0,
-    act: 0
-  }));
-
-  parsedDataRowsGlobal.forEach(row => {
-    const projectCode = (row[0] || '').trim();
-    if (!projectCode && !row[1] && !row[2]) return;
-    const projectName = (row[1] || row[2] || projectCode || 'ไม่ระบุชื่อโครงการ').trim();
-    const projectKey = projectCode || projectName;
-
-    if (!selectedAnalysisProjects.has(projectKey)) return;
-
-    const productGroup = (row[4] || 'อื่นๆ').trim();
-    if (!selectedAnalysisProducts.has(productGroup)) return;
-
-    const unitPrice = getUnitPrice(productGroup);
-
-    if (!projectsMap[projectKey]) {
-      projectsMap[projectKey] = {
-        id: projectCode,
-        name: projectName,
-        totalRopp: 0,
-        totalAct: 0,
-        productsAct: {},
-        productsRopp: {},
-        productDetails: {}
-      };
-    }
-
-    let rowRoppSum = 0;
-    let rowActSum = 0;
-    let rowRoppUnitSum = 0;
-    let rowActUnitSum = 0;
-
-    selectedMonths.forEach((m, mIdx) => {
-      const rUnit = parseNum(row[m.roppCol]);
-      const aUnit = parseNum(row[m.actCol]);
-
-      rowRoppUnitSum += rUnit;
-      rowActUnitSum += aUnit;
-
-      const rVal = displayMode === 'baht' ? (rUnit * unitPrice) : rUnit;
-      const aVal = displayMode === 'baht' ? (aUnit * unitPrice) : aUnit;
-
-      rowRoppSum += rVal;
-      rowActSum += aVal;
-
-      monthlyAggregates[mIdx].ropp += rVal;
-      monthlyAggregates[mIdx].act += aVal;
-    });
-
-    projectsMap[projectKey].totalRopp += rowRoppSum;
-    projectsMap[projectKey].totalAct += rowActSum;
-
-    if (!projectsMap[projectKey].productDetails[productGroup]) {
-      projectsMap[projectKey].productDetails[productGroup] = {
-        productGroup: productGroup,
-        unitPrice: unitPrice,
-        roppUnit: 0,
-        actUnit: 0,
-        roppBaht: 0,
-        actBaht: 0
-      };
-    }
-
-    projectsMap[projectKey].productDetails[productGroup].roppUnit += rowRoppUnitSum;
-    projectsMap[projectKey].productDetails[productGroup].actUnit += rowActUnitSum;
-    projectsMap[projectKey].productDetails[productGroup].roppBaht += (rowRoppUnitSum * unitPrice);
-    projectsMap[projectKey].productDetails[productGroup].actBaht += (rowActUnitSum * unitPrice);
-
-    if (rowActSum > 0) {
-      projectsMap[projectKey].productsAct[productGroup] = (projectsMap[projectKey].productsAct[productGroup] || 0) + rowActSum;
-    }
-    if (rowRoppSum > 0) {
-      projectsMap[projectKey].productsRopp[productGroup] = (projectsMap[projectKey].productsRopp[productGroup] || 0) + rowRoppSum;
-    }
-
-    if (!productGroupsMap[productGroup]) {
-      productGroupsMap[productGroup] = { ropp: 0, act: 0, total: 0 };
-    }
-    productGroupsMap[productGroup].ropp += rowRoppSum;
-    productGroupsMap[productGroup].act += rowActSum;
-    productGroupsMap[productGroup].total += (rowRoppSum + rowActSum);
-  });
-
-  projectsMapGlobal = projectsMap;
-  const unitSuffix = getUnitSuffix();
-
-  projectList = Object.values(projectsMap).map(p => {
-    const rate = p.totalRopp > 0 ? (p.totalAct / p.totalRopp) * 100 : 0;
-    const boughtProducts = Object.keys(p.productsAct);
-    const oppProducts = Object.entries(p.productsRopp)
-      .sort((a, b) => b[1] - a[1])
-      .map(([name, val]) => `${name} (${formatNumber(val)} ${unitSuffix})`);
-
-    return {
-      ...p,
-      rate: rate,
-      boughtProducts: boughtProducts,
-      topOppProducts: oppProducts.slice(0, 3)
-    };
-  });
-
-  crossSellProjectsList = projectList.filter(p => p.boughtProducts.length > 1);
-  const elCrossCount = document.getElementById('kpiCrossSellCount');
-  if (elCrossCount) elCrossCount.textContent = crossSellProjectsList.length;
-
-  renderProjectTable();
-  renderCharts(projectList, productGroupsMap, monthlyAggregates);
-}
-
-function renderCharts(projects, productGroups, monthlyAggregates) {
-  const unitSuffix = getUnitSuffix();
-
-  if (monthlyAggregates) {
-    const canvasMonthly = document.getElementById('monthlyTrendChart');
-    if (canvasMonthly) {
-      const ctxMonthly = canvasMonthly.getContext('2d');
-      if (chartMonthlyTrendInstance) chartMonthlyTrendInstance.destroy();
-      chartMonthlyTrendInstance = new Chart(ctxMonthly, {
-        type: 'bar',
-        data: {
-          labels: monthlyAggregates.map(m => m.label),
-          datasets: [
-            {
-              label: `โอกาส (Ropp - ${unitSuffix})`,
-              data: monthlyAggregates.map(m => m.ropp),
-              backgroundColor: '#60a5fa',
-              borderRadius: 4
-            },
-            {
-              label: `ยอดจริง (Act - ${unitSuffix})`,
-              data: monthlyAggregates.map(m => m.act),
-              backgroundColor: '#10b981',
-              borderRadius: 4
-            }
-          ]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { position: 'top', labels: { boxWidth: 12, font: { family: 'Prompt' } } },
-            tooltip: {
-              callbacks: {
-                label: (context) => `${context.dataset.label}: ${formatNumber(context.raw)} ${unitSuffix}`
-              }
-            }
-          },
-          scales: {
-            x: { stacked: false, ticks: { font: { family: 'Prompt', size: 11 } } },
-            y: { stacked: false, ticks: { font: { family: 'Prompt' }, callback: (v) => v.toLocaleString() } }
-          }
-        }
-      });
-    }
-  }
-
-  const topProjects = [...projects]
-    .sort((a, b) => (b.totalRopp + b.totalAct) - (a.totalRopp + a.totalAct))
-    .slice(0, 10);
-
-  const canvasProjects = document.getElementById('topProjectsChart');
-  if (canvasProjects) {
-    const ctxProjects = canvasProjects.getContext('2d');
-    if (chartProjectsInstance) chartProjectsInstance.destroy();
-    chartProjectsInstance = new Chart(ctxProjects, {
-      type: 'bar',
-      data: {
-        labels: topProjects.map(p => p.name.length > 15 ? p.name.slice(0, 15) + '...' : p.name),
-        datasets: [
-          {
-            label: `โอกาส (Ropp - ${unitSuffix})`,
-            data: topProjects.map(p => p.totalRopp),
-            backgroundColor: '#60a5fa',
-            borderRadius: 4
-          },
-          {
-            label: `ยอดจริง (Act - ${unitSuffix})`,
-            data: topProjects.map(p => p.totalAct),
-            backgroundColor: '#10b981',
-            borderRadius: 4
-          }
-        ]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { position: 'top', labels: { boxWidth: 12, font: { family: 'Prompt' } } },
-          tooltip: {
-            callbacks: {
-              title: (items) => topProjects[items[0].dataIndex].name,
-              label: (context) => `${context.dataset.label}: ${formatNumber(context.raw)} ${unitSuffix}`
-            }
-          }
-        },
-        scales: {
-          x: { stacked: false, ticks: { font: { family: 'Prompt', size: 10 } } },
-          y: { stacked: false, ticks: { font: { family: 'Prompt' }, callback: (v) => v.toLocaleString() } }
-        }
-      }
-    });
-  }
-
-  const topProducts = Object.entries(productGroups)
-    .sort((a, b) => b[1].total - a[1].total)
-    .slice(0, 8);
-
-  const canvasProducts = document.getElementById('topProductsChart');
-  if (canvasProducts) {
-    const ctxProducts = canvasProducts.getContext('2d');
-    if (chartProductsInstance) chartProductsInstance.destroy();
-    chartProductsInstance = new Chart(ctxProducts, {
-      type: 'bar',
-      data: {
-        labels: topProducts.map(p => p[0]),
-        datasets: [
-          {
-            label: `โอกาส (Ropp - ${unitSuffix})`,
-            data: topProducts.map(p => p[1].ropp),
-            backgroundColor: '#60a5fa',
-            borderRadius: 4
-          },
-          {
-            label: `ยอดจริง (Act - ${unitSuffix})`,
-            data: topProducts.map(p => p[1].act),
-            backgroundColor: '#10b981',
-            borderRadius: 4
-          }
-        ]
-      },
-      options: {
-        indexAxis: 'y',
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { position: 'top', labels: { boxWidth: 12, font: { family: 'Prompt' } } },
-          tooltip: {
-            callbacks: {
-              label: (context) => `${context.dataset.label}: ${formatNumber(context.raw)} ${unitSuffix}`
-            }
-          }
-        },
-        scales: {
-          x: { stacked: false, ticks: { font: { family: 'Prompt' }, callback: (v) => v.toLocaleString() } },
-          y: { stacked: false, ticks: { font: { family: 'Prompt', size: 10 } } }
-        }
-      }
-    });
-  }
-}
-
 function renderProjectTable() {
   const tbody = document.getElementById('projectTableBody');
   if (!tbody) return;
   const searchTerm = (document.getElementById('projectSearchInput')?.value || '').toLowerCase();
 
-  let list = projectList.filter(p =>
-    (p.name || '').toLowerCase().includes(searchTerm) || (p.id || '').toLowerCase().includes(searchTerm)
-  );
+  let list = projectList.filter(p => {
+    if (selectedMasterProject !== 'all') {
+      const matchProj = p.id === selectedMasterProject || p.name === selectedMasterProject || p.key === selectedMasterProject;
+      if (!matchProj) return false;
+    }
+    return (p.name || '').toLowerCase().includes(searchTerm) || (p.id || '').toLowerCase().includes(searchTerm);
+  });
 
   let sortKey = currentSort.column;
   if (sortKey === 'ropp') sortKey = 'totalRopp';
@@ -2358,6 +1938,10 @@ function renderInactiveTable() {
   const filterMonth = document.getElementById('inactiveMonthFilter')?.value || 'all';
 
   let filtered = inactiveList.filter(item => {
+    if (selectedMasterProject !== 'all') {
+      const matchProj = item.projectCode === selectedMasterProject || item.projectName === selectedMasterProject;
+      if (!matchProj) return false;
+    }
     const matchSearch = item.projectName.toLowerCase().includes(searchTerm) ||
                         item.projectCode.toLowerCase().includes(searchTerm) ||
                         item.productGroup.toLowerCase().includes(searchTerm);
@@ -2440,7 +2024,7 @@ function sortInactive(column) {
 }
 
 // ==========================================
-// 8. Modals (Cross-sell, Details, Key, AI, Lightbox)
+// 10. Modals (Cross-sell, Details, Key, AI, Lightbox)
 // ==========================================
 function openCrossSellModal() {
   renderCrossSellTable();
@@ -2460,6 +2044,10 @@ function renderCrossSellTable() {
   const unitSuffix = getUnitSuffix();
 
   let list = crossSellProjectsList.filter(p => {
+    if (selectedMasterProject !== 'all') {
+      const matchProj = p.id === selectedMasterProject || p.name === selectedMasterProject || p.key === selectedMasterProject;
+      if (!matchProj) return false;
+    }
     const matchName = (p.name || '').toLowerCase().includes(searchTerm) || (p.id || '').toLowerCase().includes(searchTerm);
     const matchProduct = p.boughtProducts.some(b => b.toLowerCase().includes(searchTerm));
     return matchName || matchProduct;
@@ -2568,7 +2156,6 @@ function closeModal() {
   currentModalProjectKey = null;
 }
 
-// Lightbox modal functions
 function openImageLightbox(base64Data, caption) {
   const modal = document.getElementById('imageLightboxModal');
   const img = document.getElementById('lightboxImage');
@@ -2586,7 +2173,7 @@ function closeImageLightbox() {
 }
 
 // ==========================================
-// 9. Gemini API Key Management
+// 11. Gemini API Key Management
 // ==========================================
 function openGeminiKeyModal() {
   const modal = document.getElementById('geminiKeyModal');
@@ -2645,7 +2232,7 @@ function updateApiKeyStatusUI() {
 }
 
 // ==========================================
-// 10. AI Weekly Site Visit Logic
+// 12. AI Weekly Site Visit Logic
 // ==========================================
 function openSiteVisitModal() {
   if (!geminiApiKey) {
@@ -2653,7 +2240,7 @@ function openSiteVisitModal() {
     openGeminiKeyModal();
     return;
   }
-  populateWeeklyProjectSelects();
+  populateMasterProjectSelect();
   const modal = document.getElementById('siteVisitModal');
   if (modal) modal.classList.remove('hidden');
 }
@@ -2661,30 +2248,6 @@ function openSiteVisitModal() {
 function closeSiteVisitModal() {
   const modal = document.getElementById('siteVisitModal');
   if (modal) modal.classList.add('hidden');
-}
-
-function populateWeeklyProjectSelects() {
-  const modalSelect = document.getElementById('modalSiteProjectSelect');
-  const weeklyFilter = document.getElementById('weeklyProjectFilter');
-
-  let optionsHtml = '<option value="all">เลือกโครงการทั้งหมด</option>';
-  allProjectListGlobal.forEach(p => {
-    optionsHtml += `<option value="${escapeHtml(p.key)}">${escapeHtml(p.name)} (${escapeHtml(p.id || '-')})</option>`;
-  });
-
-  if (weeklyFilter) {
-    const curVal = weeklyFilter.value;
-    weeklyFilter.innerHTML = optionsHtml;
-    if (curVal) weeklyFilter.value = curVal;
-  }
-
-  if (modalSelect) {
-    let modalOptions = '<option value="auto">🤖 ให้อ่านและระบุอัตโนมัติจากภาพ</option>';
-    allProjectListGlobal.forEach(p => {
-      modalOptions += `<option value="${escapeHtml(p.key)}">${escapeHtml(p.name)} (${escapeHtml(p.id || '-')})</option>`;
-    });
-    modalSelect.innerHTML = modalOptions;
-  }
 }
 
 function handleSiteVisitFilesSelected(files) {
@@ -2823,9 +2386,6 @@ async function processSiteVisitImagesWithAI() {
   }, 600);
 }
 
-/**
- * รองรับการเพิ่มภาพโดยตรงจาก Section สรุปรายงานรายสัปดาห์
- */
 async function handleDirectSiteVisitUpload(files) {
   if (!files || files.length === 0) return;
   if (!geminiApiKey) {
@@ -2919,7 +2479,6 @@ async function loadSiteVisitLogsFromDB() {
 function renderWeeklySiteVisitDashboard() {
   const emptyState = document.getElementById('weeklyEmptyState');
   const cardsGrid = document.getElementById('weeklyCardsGrid');
-  const filterVal = document.getElementById('weeklyProjectFilter')?.value || 'all';
 
   if (!siteVisitLogsGlobal || siteVisitLogsGlobal.length === 0) {
     if (emptyState) emptyState.classList.remove('hidden');
@@ -2928,9 +2487,9 @@ function renderWeeklySiteVisitDashboard() {
   }
 
   let list = siteVisitLogsGlobal;
-  if (filterVal !== 'all') {
+  if (selectedMasterProject !== 'all') {
     list = siteVisitLogsGlobal.filter(item => {
-      return item.projectId === filterVal || item.projectName === filterVal;
+      return item.projectId === selectedMasterProject || item.projectName === selectedMasterProject;
     });
   }
 
@@ -3053,10 +2612,9 @@ function copyWeeklySummaryText() {
     return;
   }
 
-  const filterVal = document.getElementById('weeklyProjectFilter')?.value || 'all';
   let list = siteVisitLogsGlobal;
-  if (filterVal !== 'all') {
-    list = siteVisitLogsGlobal.filter(i => i.projectId === filterVal || i.projectName === filterVal);
+  if (selectedMasterProject !== 'all') {
+    list = siteVisitLogsGlobal.filter(i => i.projectId === selectedMasterProject || i.projectName === selectedMasterProject);
   }
 
   let text = `📢 สรุปรายงานหน้างานและแผนสินค้าประจำสัปดาห์\n---------------------------------------\n`;
@@ -3104,7 +2662,7 @@ async function clearSiteVisitData() {
 }
 
 // ==========================================
-// 11. Excel Export Helpers
+// 13. Excel Export Helpers
 // ==========================================
 function downloadExcel(data, fileName, sheetName) {
   const ws = XLSX.utils.json_to_sheet(data);
@@ -3119,7 +2677,14 @@ function exportInactiveToExcel() {
     return;
   }
   const unitSuffix = getUnitSuffix();
-  const data = inactiveList.map(item => ({
+  const filtered = inactiveList.filter(item => {
+    if (selectedMasterProject !== 'all') {
+      return item.projectCode === selectedMasterProject || item.projectName === selectedMasterProject;
+    }
+    return true;
+  });
+
+  const data = filtered.map(item => ({
     "รหัสโครงการ": item.projectCode || '-',
     "ชื่อโครงการ": item.projectName,
     "กลุ่มสินค้า (Col E)": item.productGroup,
@@ -3138,7 +2703,14 @@ function exportProjectsToExcel() {
     return;
   }
   const unitSuffix = getUnitSuffix();
-  const data = projectList.map(p => ({
+  const filtered = projectList.filter(p => {
+    if (selectedMasterProject !== 'all') {
+      return p.id === selectedMasterProject || p.name === selectedMasterProject || p.key === selectedMasterProject;
+    }
+    return true;
+  });
+
+  const data = filtered.map(p => ({
     "รหัสโครงการ": p.id || '-',
     "ชื่อโครงการ": p.name,
     "สินค้าที่เกิด Actual แล้ว": p.boughtProducts.join(', '),
@@ -3156,7 +2728,14 @@ function exportCrossSellToExcel() {
     return;
   }
   const unitSuffix = getUnitSuffix();
-  const data = crossSellProjectsList.map(p => ({
+  const filtered = crossSellProjectsList.filter(p => {
+    if (selectedMasterProject !== 'all') {
+      return p.id === selectedMasterProject || p.name === selectedMasterProject || p.key === selectedMasterProject;
+    }
+    return true;
+  });
+
+  const data = filtered.map(p => ({
     "รหัสโครงการ": p.id || '-',
     "ชื่อโครงการ": p.name,
     "จำนวนสินค้าที่ซื้อจริง": p.boughtProducts.length,
@@ -3189,7 +2768,7 @@ function exportModalProductsToExcel() {
 }
 
 // ==========================================
-// 12. App Initialization & Event Listeners
+// 14. App Initialization & Event Listeners
 // ==========================================
 document.addEventListener('DOMContentLoaded', async () => {
   try {
@@ -3220,6 +2799,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadSiteVisitLogsFromDB();
   } catch (err) {
     console.error('DB Initialization error:', err);
+  }
+
+  // Master Project Select Listener (All-in-One Link)
+  const masterProjectSelect = document.getElementById('masterProjectSelect');
+  if (masterProjectSelect) {
+    masterProjectSelect.addEventListener('change', (e) => {
+      selectedMasterProject = e.target.value;
+      applyMasterProjectFilter();
+    });
   }
 
   // File Inputs Event Listeners
@@ -3349,18 +2937,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('matrixMonthSelect')?.addEventListener('change', updateForecastMatrix);
   document.getElementById('matrixSearchInput')?.addEventListener('input', renderForecastMatrixTable);
 
-  // Analysis Inputs
-  document.getElementById('analysisStartSelect')?.addEventListener('change', handleAnalysisRangeChange);
-  document.getElementById('analysisEndSelect')?.addEventListener('change', handleAnalysisRangeChange);
+  // Search Table Inputs
   document.getElementById('projectSearchInput')?.addEventListener('input', renderProjectTable);
-
-  // Inactive Inputs
   document.getElementById('inactiveSearchInput')?.addEventListener('input', renderInactiveTable);
   document.getElementById('inactiveMonthFilter')?.addEventListener('change', renderInactiveTable);
 
   // Dealer Inputs
   document.getElementById('dealerSearchInput')?.addEventListener('input', renderDealerTable);
-  document.getElementById('dealerProjectFilter')?.addEventListener('change', renderDealerTable);
   document.getElementById('dealerYearFilter')?.addEventListener('change', renderDealerTable);
   document.getElementById('dealerMonthFilter')?.addEventListener('change', renderDealerTable);
 
@@ -3368,21 +2951,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('dealerCompStartMonthSelect')?.addEventListener('change', handleDealerCompMonthRangeChange);
   document.getElementById('dealerCompEndMonthSelect')?.addEventListener('change', handleDealerCompMonthRangeChange);
 
-  // Weekly Site Filter
-  document.getElementById('weeklyProjectFilter')?.addEventListener('change', renderWeeklySiteVisitDashboard);
-
-  // Search Inputs inside Checkbox Dropdowns
-  document.getElementById('forecastProjectSearchInput')?.addEventListener('input', renderForecastProjectCheckboxes);
-  document.getElementById('analysisProjectSearchInput')?.addEventListener('input', renderAnalysisProjectCheckboxes);
-  document.getElementById('dealerCompProjectSearchInput')?.addEventListener('input', renderDealerCompProjectCheckboxes);
-
   // Toggle Dropdown Menus
   const dropdownPairs = [
     { btn: 'forecastProductDropdownBtn', menu: 'forecastProductDropdownMenu' },
-    { btn: 'forecastProjectDropdownBtn', menu: 'forecastProjectDropdownMenu' },
-    { btn: 'analysisProjectDropdownBtn', menu: 'analysisProjectDropdownMenu' },
-    { btn: 'analysisProductDropdownBtn', menu: 'analysisProductDropdownMenu' },
-    { btn: 'dealerCompProjectDropdownBtn', menu: 'dealerCompProjectDropdownMenu' },
     { btn: 'dealerCompProductDropdownBtn', menu: 'dealerCompProductDropdownMenu' }
   ];
 

@@ -41,6 +41,14 @@
       </div>
       
       <div class="flex flex-wrap items-center gap-2">
+        <!-- ตัวกรองโครงการหลัก (Master Project Filter) จุดเดียวคุมทั้ง App -->
+        <div class="inline-flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm">
+          <span class="text-indigo-900">🏗️ โครงการ:</span>
+          <select id="masterProjectSelect" class="bg-white text-indigo-700 font-bold px-2 py-0.5 rounded border border-indigo-300 focus:outline-none cursor-pointer max-w-[180px] sm:max-w-[240px]">
+            <option value="all">เลือกโครงการทั้งหมด</option>
+          </select>
+        </div>
+
         <!-- หน่วยแสดงผล -->
         <div class="inline-flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm">
           <span class="text-indigo-900">📊 หน่วย:</span>
@@ -163,7 +171,7 @@
         </div>
       </div>
 
-      <!-- SECTION: Weekly AI Site Visit Dashboard (พร้อมที่แนบรูปในตัว) -->
+      <!-- SECTION 1: Weekly AI Site Visit Dashboard (พร้อมที่แนบรูปในตัว) -->
       <div id="weeklySiteVisitSection" class="bg-white rounded-xl border border-sky-200 shadow-sm overflow-hidden">
         <div class="p-5 border-b border-sky-100 bg-sky-50/70 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
@@ -176,20 +184,17 @@
               </h2>
             </div>
             <p class="text-xs text-sky-700 mt-1">
-              สกัดข้อมูลภาพประวัติการเข้าเยี่ยมหน้างาน สรุปความคืบหน้า แผนสินค้า และความเสี่ยงแยกตามโครงการ พร้อมแสดงภาพประกอบ
+              สกัดข้อมูลภาพประวัติการเข้าเยี่ยมหน้างาน สรุปความคืบหน้า แผนสินค้า และความเสี่ยง (กรองตามโครงการหลักด้านบน)
             </p>
           </div>
           
           <div class="flex flex-wrap items-center gap-2">
-            <!-- ปุ่มแนบรูปหน้างานโดยตรงที่ส่วนนี้ -->
+            <!-- ปุ่มแนบรูปหน้างานโดยตรง -->
             <label for="weeklyDirectFileInput" class="cursor-pointer inline-flex items-center gap-1.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm transition-all">
               <span>📷</span> เพิ่มรูปหน้างาน
             </label>
             <input type="file" id="weeklyDirectFileInput" accept="image/*" multiple class="hidden" />
 
-            <select id="weeklyProjectFilter" class="text-xs px-3 py-1.5 border border-sky-300 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-400 shadow-sm max-w-[200px]">
-              <option value="all">เลือกโครงการทั้งหมด</option>
-            </select>
             <button onclick="copyWeeklySummaryText()" class="inline-flex items-center gap-1.5 bg-white hover:bg-sky-50 text-sky-800 border border-sky-300 text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm transition-all">
               <svg class="w-3.5 h-3.5 text-sky-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
               คัดลอกสรุปส่ง LINE
@@ -222,7 +227,7 @@
         </div>
       </div>
 
-      <!-- SECTION: รายงานยอดขายจริงเชื่อมโยงผ่านผู้แทนจำหน่าย (Dealer) -->
+      <!-- SECTION 2: รายงานยอดขายจริงเชื่อมโยงผ่านผู้แทนจำหน่าย (Dealer) -->
       <div id="dealerSection" class="bg-white rounded-xl border border-emerald-200 shadow-sm overflow-hidden">
         <div class="p-5 border-b border-emerald-100 bg-emerald-50/70 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
@@ -237,9 +242,6 @@
             </p>
           </div>
           <div class="flex flex-wrap items-center gap-2">
-            <select id="dealerProjectFilter" class="text-xs px-2.5 py-1.5 border border-emerald-300 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-400 shadow-sm max-w-[180px]">
-              <option value="all">โครงการทั้งหมด</option>
-            </select>
             <select id="dealerYearFilter" class="text-xs px-2.5 py-1.5 border border-emerald-300 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-400 shadow-sm">
               <option value="all">ปีทั้งหมด</option>
             </select>
@@ -291,7 +293,7 @@
         </div>
       </div>
 
-      <!-- SECTION: กราฟเปรียบเทียบ Ropp vs Dealer Actual (เพิ่มกราฟแท่งรายเดือน และตัวกรองช่วงเดือน) -->
+      <!-- SECTION 3: กราฟเปรียบเทียบ Ropp vs Dealer Actual (มีกราฟแท่งรายเดือน และตัวกรองช่วงเดือน) -->
       <div class="bg-white rounded-xl border border-emerald-200 shadow-sm p-5 space-y-5">
         <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-emerald-100 pb-3">
           <div>
@@ -303,33 +305,12 @@
             </p>
           </div>
           <div class="flex flex-wrap items-center gap-2">
-            <!-- ตัวกรองช่วงเดือนสำหรับ Ropp vs Dealer Actual (ใหม่) -->
+            <!-- ตัวกรองช่วงเดือนสำหรับ Ropp vs Dealer Actual -->
             <div class="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg text-xs shadow-sm">
               <span class="text-emerald-900 font-semibold">📅 ช่วงเดือน:</span>
               <select id="dealerCompStartMonthSelect" class="bg-white text-emerald-800 font-medium px-1.5 py-0.5 rounded border border-emerald-300 focus:outline-none"></select>
               <span class="text-emerald-700 font-medium">ถึง</span>
               <select id="dealerCompEndMonthSelect" class="bg-white text-emerald-800 font-medium px-1.5 py-0.5 rounded border border-emerald-300 focus:outline-none"></select>
-            </div>
-
-            <!-- Filter รายโครงการ -->
-            <div class="relative">
-              <button id="dealerCompProjectDropdownBtn" type="button" class="inline-flex items-center gap-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all">
-                <span>🏗️</span>
-                <span id="dealerCompProjectDropdownLabel">เลือกโครงการทั้งหมด</span>
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-              </button>
-              <div id="dealerCompProjectDropdownMenu" class="hidden absolute right-0 mt-2 w-80 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-3 space-y-2">
-                <div class="flex justify-between items-center pb-2 border-b border-slate-100">
-                  <span class="text-xs font-bold text-slate-700">กรองรายโครงการ (Dealer vs Ropp)</span>
-                  <div class="flex gap-2">
-                    <button type="button" onclick="selectAllDealerCompProjects(true)" class="text-[11px] text-emerald-600 hover:underline">เลือกทั้งหมด</button>
-                    <span class="text-slate-300">|</span>
-                    <button type="button" onclick="selectAllDealerCompProjects(false)" class="text-[11px] text-slate-500 hover:underline">ล้างค่า</button>
-                  </div>
-                </div>
-                <input type="text" id="dealerCompProjectSearchInput" placeholder="ค้นหาชื่อโครงการ..." class="w-full text-xs px-2.5 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 mb-1">
-                <div id="dealerCompProjectCheckboxList" class="max-h-56 overflow-y-auto custom-scrollbar space-y-1.5 text-xs text-slate-700"></div>
-              </div>
             </div>
 
             <!-- Filter กลุ่มสินค้า -->
@@ -354,7 +335,7 @@
           </div>
         </div>
 
-        <!-- กราฟแท่งรายเดือน (ใหม่): Ropp vs Dealer Actual แต่ละเดือน -->
+        <!-- กราฟแท่งรายเดือน: Ropp vs Dealer Actual แต่ละเดือน -->
         <div class="flex flex-col bg-slate-50/50 p-4 rounded-xl border border-slate-100">
           <div class="mb-3">
             <h3 class="text-sm font-bold text-slate-800 flex items-center gap-1.5" id="chartDealerCompMonthlyTitle">
@@ -372,7 +353,7 @@
           <div class="flex flex-col bg-slate-50/50 p-4 rounded-xl border border-slate-100">
             <div class="mb-3">
               <h3 class="text-sm font-bold text-slate-800 flex items-center gap-1.5" id="chartDealerCompProjectTitle">
-                <span>🏗️</span> Ropp vs Dealer Actual ใน Top 10 โครงการ
+                <span>🏗️</span> Ropp vs Dealer Actual ใน Top โครงการ
               </h3>
               <p class="text-[11px] text-slate-400">เปรียบเทียบยอดโอกาส (Ropp) กับยอดขายจริงผ่าน Dealer ของแต่ละโครงการ</p>
             </div>
@@ -395,7 +376,7 @@
         </div>
       </div>
 
-      <!-- SECTION: Forecast Dashboard & Charts -->
+      <!-- SECTION 4: Forecast Dashboard & Charts -->
       <div class="bg-white rounded-xl border border-indigo-200 shadow-sm p-5 space-y-5">
         <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-indigo-100 pb-3">
           <div>
@@ -407,27 +388,6 @@
             </p>
           </div>
           <div class="flex flex-wrap items-center gap-2">
-            <!-- Multi-select Filter รายโครงการ -->
-            <div class="relative">
-              <button id="forecastProjectDropdownBtn" type="button" class="inline-flex items-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all">
-                <span>🏗️</span>
-                <span id="forecastProjectDropdownLabel">เลือกโครงการทั้งหมด</span>
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-              </button>
-              <div id="forecastProjectDropdownMenu" class="hidden absolute right-0 mt-2 w-80 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-3 space-y-2">
-                <div class="flex justify-between items-center pb-2 border-b border-slate-100">
-                  <span class="text-xs font-bold text-slate-700">กรองรายโครงการ (Forecast)</span>
-                  <div class="flex gap-2">
-                    <button type="button" onclick="selectAllForecastProjects(true)" class="text-[11px] text-indigo-600 hover:underline">เลือกทั้งหมด</button>
-                    <span class="text-slate-300">|</span>
-                    <button type="button" onclick="selectAllForecastProjects(false)" class="text-[11px] text-slate-500 hover:underline">ล้างค่า</button>
-                  </div>
-                </div>
-                <input type="text" id="forecastProjectSearchInput" placeholder="ค้นหาชื่อโครงการ..." class="w-full text-xs px-2.5 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 mb-1">
-                <div id="forecastProjectCheckboxList" class="max-h-56 overflow-y-auto custom-scrollbar space-y-1.5 text-xs text-slate-700"></div>
-              </div>
-            </div>
-
             <!-- Multi-select Filter กลุ่มสินค้า -->
             <div class="relative">
               <button id="forecastProductDropdownBtn" type="button" class="inline-flex items-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all">
@@ -477,7 +437,7 @@
             <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-3">
               <div>
                 <h3 class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
-                  <span>🏗️</span> Forecast รายโครงการ (Top Projects)
+                  <span>🏗️</span> Forecast รายโครงการ
                 </h3>
                 <p class="text-[11px] text-slate-400">Stacked Bar แยกกลุ่มสินค้า แสดงเฉพาะ 1 เดือนที่เลือก</p>
               </div>
@@ -525,7 +485,7 @@
         </div>
       </div>
 
-      <!-- Inactive Actual Monitor Table -->
+      <!-- SECTION 5: Inactive Actual Monitor Table -->
       <div class="bg-white rounded-xl border border-rose-200 shadow-sm overflow-hidden">
         <div class="p-5 border-b border-rose-100 bg-rose-50 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
           <div>
@@ -580,105 +540,7 @@
         </div>
       </div>
 
-      <!-- Analysis Filter -->
-      <div class="bg-indigo-50/70 border border-indigo-200 rounded-xl p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 shadow-sm">
-        <div class="flex items-center gap-2">
-          <span class="text-lg">🗓️</span>
-          <div>
-            <h3 class="text-sm font-bold text-indigo-950">กำหนดช่วงเวลา, โครงการ & สินค้า สำหรับวิเคราะห์ Ropp vs Act</h3>
-            <p class="text-xs text-indigo-700">กรองข้อมูลในกราฟเปรียบเทียบ Ropp vs Act และตารางวิเคราะห์ด้านล่าง</p>
-          </div>
-        </div>
-        <div class="flex flex-wrap items-center gap-2">
-          <!-- Multi-select โครงการ -->
-          <div class="relative">
-            <button id="analysisProjectDropdownBtn" type="button" class="inline-flex items-center gap-2 bg-white hover:bg-indigo-50 text-indigo-900 border border-indigo-200 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all">
-              <span>🏗️</span>
-              <span id="analysisProjectDropdownLabel">เลือกโครงการทั้งหมด</span>
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-            </button>
-            <div id="analysisProjectDropdownMenu" class="hidden absolute right-0 mt-2 w-80 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-3 space-y-2">
-              <div class="flex justify-between items-center pb-2 border-b border-slate-100">
-                <span class="text-xs font-bold text-slate-700">กรองรายโครงการ (Opp vs Act)</span>
-                <div class="flex gap-2">
-                  <button type="button" onclick="selectAllAnalysisProjects(true)" class="text-[11px] text-indigo-600 hover:underline">เลือกทั้งหมด</button>
-                  <span class="text-slate-300">|</span>
-                  <button type="button" onclick="selectAllAnalysisProjects(false)" class="text-[11px] text-slate-500 hover:underline">ล้างค่า</button>
-                </div>
-              </div>
-              <input type="text" id="analysisProjectSearchInput" placeholder="ค้นหาชื่อโครงการ..." class="w-full text-xs px-2.5 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 mb-1">
-              <div id="analysisProjectCheckboxList" class="max-h-56 overflow-y-auto custom-scrollbar space-y-1.5 text-xs text-slate-700"></div>
-            </div>
-          </div>
-
-          <!-- Multi-select สินค้า -->
-          <div class="relative">
-            <button id="analysisProductDropdownBtn" type="button" class="inline-flex items-center gap-2 bg-white hover:bg-indigo-50 text-indigo-900 border border-indigo-200 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all">
-              <span>🏷️</span>
-              <span id="analysisProductDropdownLabel">เลือกกลุ่มสินค้าทั้งหมด</span>
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-            </button>
-            <div id="analysisProductDropdownMenu" class="hidden absolute right-0 mt-2 w-72 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-3 space-y-2">
-              <div class="flex justify-between items-center pb-2 border-b border-slate-100">
-                <span class="text-xs font-bold text-slate-700">กรองกลุ่มสินค้า (Opp vs Act)</span>
-                <div class="flex gap-2">
-                  <button type="button" onclick="selectAllAnalysisProducts(true)" class="text-[11px] text-indigo-600 hover:underline">เลือกทั้งหมด</button>
-                  <span class="text-slate-300">|</span>
-                  <button type="button" onclick="selectAllAnalysisProducts(false)" class="text-[11px] text-slate-500 hover:underline">ล้างค่า</button>
-                </div>
-              </div>
-              <div id="analysisProductCheckboxList" class="max-h-56 overflow-y-auto custom-scrollbar space-y-1.5 text-xs text-slate-700"></div>
-            </div>
-          </div>
-
-          <!-- Date Range -->
-          <div class="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-indigo-200 shadow-sm text-xs">
-            <span class="text-slate-500 font-medium">เริ่มต้น:</span>
-            <select id="analysisStartSelect" class="bg-white text-indigo-700 font-semibold focus:outline-none"></select>
-            <span class="text-slate-500 font-medium ml-1">สิ้นสุด:</span>
-            <select id="analysisEndSelect" class="bg-white text-indigo-700 font-semibold focus:outline-none"></select>
-          </div>
-        </div>
-      </div>
-
-      <!-- Charts Section (Ropp vs Act ปัจจุบัน) -->
-      <div class="space-y-6">
-        <!-- Monthly Trend Chart -->
-        <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col">
-          <div class="mb-4">
-            <h3 class="text-base font-bold text-slate-800" id="chartMonthlyTrendTitle">เปรียบเทียบ Ropp vs Act รายเดือน (Monthly Trend)</h3>
-            <p class="text-xs text-slate-400">แสดงภาพรวมยอดโอกาส (Ropp) เทียบยอดขายจริง (Act) ในแต่ละเดือนตามช่วงเวลาและเงื่อนไขที่เลือก</p>
-          </div>
-          <div class="relative min-h-[300px]">
-            <canvas id="monthlyTrendChart"></canvas>
-          </div>
-        </div>
-
-        <!-- 2 Grid Charts -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col">
-            <div class="mb-4">
-              <h3 class="text-base font-bold text-slate-800" id="chartTopProjectsTitle">เปรียบเทียบ Ropp vs Act ใน Top 10 โครงการ</h3>
-              <p class="text-xs text-slate-400">แสดงเฉพาะชื่อโครงการที่มีผลรวมสูงสุดตามเงื่อนไขโครงการและสินค้าที่เลือก</p>
-            </div>
-            <div class="relative flex-1 min-h-[320px]">
-              <canvas id="topProjectsChart"></canvas>
-            </div>
-          </div>
-
-          <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col">
-            <div class="mb-4">
-              <h3 class="text-base font-bold text-slate-800" id="chartTopProductsTitle">ยอดสูงสุดรายกลุ่มสินค้า (จาก Column E)</h3>
-              <p class="text-xs text-slate-400">จัดอันดับกลุ่มสินค้า Product Group ที่มียอดรวมสูงสุดตามเงื่อนไขที่เลือก</p>
-            </div>
-            <div class="relative flex-1 min-h-[320px]">
-              <canvas id="topProductsChart"></canvas>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Main Analysis Table -->
+      <!-- SECTION 6: Main Analysis Table (วิเคราะห์สินค้าที่ซื้อจริงและโอกาส Cross-sell รายโครงการ) -->
       <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div class="p-5 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
@@ -911,7 +773,7 @@
         <div class="flex justify-between items-center mb-3">
           <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wider">รายการกลุ่มสินค้าทั้งหมดในโครงการ (Column E)</h4>
           <button onclick="exportModalProductsToExcel()" class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-semibold px-3 py-1 rounded-lg shadow-sm transition-all">
-            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
             Export รายการสินค้านี้ (.xlsx)
           </button>
         </div>
@@ -940,7 +802,7 @@
     </div>
   </div>
 
-  <!-- Modal 5: Lightbox เปิดดูรูปถ่ายหน้างานขนาดเต็ม (ใหม่) -->
+  <!-- Modal 5: Lightbox เปิดดูรูปถ่ายหน้างานขนาดเต็ม -->
   <div id="imageLightboxModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
     <div class="relative max-w-4xl max-h-[90vh] flex flex-col items-center">
       <button onclick="closeImageLightbox()" class="absolute -top-10 right-0 text-white hover:text-slate-300 bg-slate-800/60 p-2 rounded-full focus:outline-none">
