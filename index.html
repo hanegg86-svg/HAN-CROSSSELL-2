@@ -1,0 +1,3032 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sales & Cross-sell Analytics Dashboard</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- PapaParse -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <!-- SheetJS (xlsx) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Prompt', sans-serif; background-color: #f8fafc; }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+  <!-- Header -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+      <div>
+        <h1 class="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
+          <span>📊</span> Sales & Cross-sell Analytics Dashboard
+        </h1>
+        <p class="text-sm text-slate-500 mt-0.5">
+          วิเคราะห์ Ropp vs Act, คาดการณ์ Forecast, เชื่อมโยง Dealer พร้อมระบบสรุปหน้างานรายสัปดาห์ด้วย Gemini AI
+        </p>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <!-- ปุ่มเปิดการตั้งค่า Gemini API Key -->
+        <button onclick="openApiKeyModal()" class="inline-flex items-center gap-1.5 bg-violet-50 hover:bg-violet-100 text-violet-800 border border-violet-300 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all shadow-sm">
+          <span>🔑</span> ตั้งค่า Gemini API Key
+          <span id="apiKeyStatusBadge" class="w-2 h-2 rounded-full bg-rose-500 ml-0.5"></span>
+        </button>
+
+        <!-- ปุ่มลัดเลื่อนไปส่วน AI Weekly Dashboard -->
+        <button onclick="scrollToWeeklySection()" class="inline-flex items-center gap-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-all shadow-sm">
+          <span>📱</span> สรุปหน้างาน AI รายสัปดาห์
+        </button>
+
+        <!-- Dropdown เลือกแสดงผลเป็น มูลค่า (บาท) หรือ ปริมาณ (หน่วยสินค้า) -->
+        <div class="inline-flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm">
+          <span class="text-indigo-900">📊 หน่วยแสดงผล:</span>
+          <select id="unitDisplayModeSelect" class="bg-white text-indigo-700 font-bold px-2 py-0.5 rounded border border-indigo-300 focus:outline-none cursor-pointer">
+            <option value="baht">มูลค่า (บาท)</option>
+            <option value="unit">ปริมาณ (หน่วยสินค้า)</option>
+          </select>
+        </div>
+        <!-- ปุ่มอัปโหลดราคาต่อหน่วย -->
+        <label for="priceFileInput" class="cursor-pointer inline-flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all shadow-sm">
+          <span>🏷️</span> อัปโหลดราคาต่อหน่วย
+        </label>
+        <input type="file" id="priceFileInput" accept=".csv" class="hidden" />
+        <!-- ปุ่มอัปโหลดไฟล์ Dealer -->
+        <label for="dealerFileInput" class="cursor-pointer inline-flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all shadow-sm">
+          <span>🏬</span> อัปโหลดไฟล์ Dealer CSV
+        </label>
+        <input type="file" id="dealerFileInput" accept=".csv" class="hidden" />
+        <!-- ปุ่มอัปโหลดไฟล์ยอดขายหลัก -->
+        <label for="salesFileInput" class="cursor-pointer inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-all shadow-sm">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+          เลือกไฟล์ยอดขาย CSV
+        </label>
+        <input type="file" id="salesFileInput" accept=".csv" class="hidden" />
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+    <!-- Upload Area -->
+    <div id="dropZone" class="border-2 border-dashed border-slate-300 hover:border-indigo-500 bg-white rounded-2xl p-8 text-center cursor-pointer transition-all shadow-sm">
+      <div class="max-w-md mx-auto space-y-3">
+        <div class="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mx-auto text-2xl shadow-inner">
+          📁
+        </div>
+        <div>
+          <p class="text-base font-semibold text-slate-700">ลากไฟล์ยอดขาย CSV มาวางที่นี่ หรือคลิกเพื่ออัปโหลด</p>
+          <p class="text-xs text-slate-400 mt-1">ระบบคำนวณมูลค่าบาทจากราคาต่อหน่วย และแยกยอด Ropp กับ Act ให้อัตโนมัติ (รองรับทั้ง UTF-8 และ Windows-874 / TIS-620)</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Missing Prices Alert Banner -->
+    <div id="missingPriceBanner" class="hidden bg-amber-50 border-l-4 border-amber-500 p-4 rounded-xl shadow-sm">
+      <div class="flex items-start">
+        <span class="text-xl mr-3">⚠️</span>
+        <div class="flex-1">
+          <h3 class="text-sm font-bold text-amber-800">พบสินค้าที่ยังไม่มีข้อมูลในตารางราคาต่อหน่วย (<span id="missingCount">0</span> รายการ)</h3>
+          <p class="text-xs text-amber-700 mt-1">หากเลือกแสดงเป็นบาท สินค้าเหล่านี้จะถูกคำนวณเป็น 0 บาท โปรดอัปโหลดไฟล์ราคาต่อหน่วยเพิ่มเติม:</p>
+          <div id="missingList" class="flex flex-wrap gap-1.5 mt-2"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- SECTION: Weekly AI Site Visit Dashboard (Gemini 3.5 Flash-Lite)          -->
+    <!-- ========================================================================= -->
+    <div id="weeklyAiDashboardSection" class="bg-white rounded-2xl border border-purple-200 shadow-sm overflow-hidden">
+      <!-- Section Header -->
+      <div class="p-5 border-b border-purple-100 bg-gradient-to-r from-purple-50 via-indigo-50/50 to-white flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="bg-purple-600 text-white text-xs px-2.5 py-0.5 rounded-md font-bold flex items-center gap-1">
+              <span>⚡</span> gemini-3.5-flash-lite
+            </span>
+            <span class="text-xs font-medium text-purple-700 bg-purple-100/70 px-2 py-0.5 rounded">
+              IndexedDB Powered
+            </span>
+          </div>
+          <h2 class="text-lg font-bold text-slate-900 mt-1.5 flex items-center gap-2">
+            <span>📋</span> สรุปรายงานการเข้าเยี่ยมหน้างานรายสัปดาห์ (Weekly Site Visit Dashboard)
+          </h2>
+          <p class="text-xs text-slate-500 mt-0.5">
+            อัปโหลดภาพแคปหน้าจอประวัติการเข้าเยี่ยม AI จะถอดข้อความ วิเคราะห์ความคืบหน้า แผนเรียกสินค้า และสรุปย่อตามโครงการที่เลือก
+          </p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- Dropdown กรองตามโครงการสำหรับหน้าสรุปรายสัปดาห์ -->
+          <div class="flex items-center gap-1.5 bg-white border border-purple-200 px-3 py-1.5 rounded-lg shadow-sm">
+            <span class="text-xs font-semibold text-purple-900">🏗️ เลือกโครงการ:</span>
+            <select id="weeklyProjectSelect" onchange="renderWeeklyDashboardView()" class="text-xs font-bold text-purple-800 bg-transparent focus:outline-none max-w-[200px] cursor-pointer">
+              <option value="all">ทุกโครงการที่บันทึกไว้</option>
+            </select>
+          </div>
+
+          <!-- ปุ่มอัปโหลดรูปภาพ Site Visit -->
+          <label for="siteVisitImagesInput" class="cursor-pointer inline-flex items-center gap-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-all shadow-sm">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+            <span>อัปโหลดรูปภาพเข้าเยี่ยม (หลายรูปได้)</span>
+          </label>
+          <input type="file" id="siteVisitImagesInput" accept="image/*" multiple class="hidden" onchange="handleSiteVisitImages(this.files)" />
+
+          <!-- ปุ่มล้างข้อมูลใน IndexedDB -->
+          <button onclick="clearSiteVisitsData()" title="ล้างประวัติการอ่านภาพหน้างานทั้งหมด" class="text-slate-400 hover:text-rose-600 p-2 rounded-lg hover:bg-rose-50 transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Processing Progress Banner -->
+      <div id="aiProcessingBanner" class="hidden bg-purple-600 text-white p-3 px-5 text-xs flex items-center justify-between animate-pulse">
+        <div class="flex items-center gap-2">
+          <svg class="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+          <span id="aiProcessingStatusText">กำลังวิเคราะห์ภาพด้วย Gemini 3.5 Flash-Lite...</span>
+        </div>
+        <div id="aiProcessingCounter" class="font-mono font-bold">1 / 1</div>
+      </div>
+
+      <!-- Main Weekly Content View -->
+      <div class="p-6 space-y-6">
+        <!-- Executive Weekly Summary Card -->
+        <div class="bg-gradient-to-br from-slate-900 to-indigo-950 text-white rounded-xl p-5 shadow-md border border-slate-800">
+          <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-slate-700/60 pb-3">
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="bg-indigo-500/30 text-indigo-300 border border-indigo-400/30 text-[11px] px-2 py-0.5 rounded font-mono font-bold" id="execSummaryProjectId">ALL PROJECTS</span>
+                <h3 class="text-base font-bold text-white" id="execSummaryProjectName">สรุปย่อภาพรวมรายสัปดาห์</h3>
+              </div>
+              <p class="text-xs text-slate-400 mt-0.5" id="execSummaryMeta">
+                รวบรวมจากประวัติการเข้าเยี่ยมหน้างานที่บันทึกไว้ในฐานข้อมูล IndexedDB
+              </p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="copyWeeklySummaryText()" class="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-slate-700 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
+                <span>คัดลอกสรุป (LINE)</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 4 Core Pillars of Weekly Summary -->
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4 text-xs">
+            <!-- 1. ความคืบหน้าหน้างาน -->
+            <div class="bg-slate-800/60 border border-slate-700/70 p-3.5 rounded-xl space-y-1.5">
+              <div class="flex items-center justify-between text-indigo-300 font-bold">
+                <span class="flex items-center gap-1.5"><span>🏗️</span> ความคืบหน้าหน้างาน [PRG]</span>
+              </div>
+              <p class="text-slate-300 text-[11px] leading-relaxed max-h-36 overflow-y-auto custom-scrollbar" id="execSummaryProgress">
+                ยังไม่มีข้อมูลการเข้าเยี่ยม โปรดอัปโหลดภาพบันทึกหน้างาน
+              </p>
+            </div>
+
+            <!-- 2. แผนเรียกสินค้าเข้าหน้างาน -->
+            <div class="bg-slate-800/60 border border-slate-700/70 p-3.5 rounded-xl space-y-1.5">
+              <div class="flex items-center justify-between text-emerald-300 font-bold">
+                <span class="flex items-center gap-1.5"><span>🚚</span> แผนเรียกสินค้า [MAT]</span>
+              </div>
+              <p class="text-slate-300 text-[11px] leading-relaxed max-h-36 overflow-y-auto custom-scrollbar" id="execSummaryMaterials">
+                ยังไม่มีข้อมูลแผนเรียกสินค้า
+              </p>
+            </div>
+
+            <!-- 3. ปัญหาและข้อกังวลหน้างาน -->
+            <div class="bg-slate-800/60 border border-slate-700/70 p-3.5 rounded-xl space-y-1.5">
+              <div class="flex items-center justify-between text-amber-300 font-bold">
+                <span class="flex items-center gap-1.5"><span>⚠️</span> ปัญหา/ความเสี่ยง [ISS]</span>
+              </div>
+              <p class="text-slate-300 text-[11px] leading-relaxed max-h-36 overflow-y-auto custom-scrollbar" id="execSummaryIssues">
+                ยังไม่มีข้อมูลปัญหาหน้างาน
+              </p>
+            </div>
+
+            <!-- 4. สิ่งที่ต้องตามต่อในสัปดาห์หน้า -->
+            <div class="bg-slate-800/60 border border-slate-700/70 p-3.5 rounded-xl space-y-1.5">
+              <div class="flex items-center justify-between text-purple-300 font-bold">
+                <span class="flex items-center gap-1.5"><span>📋</span> สิ่งที่ต้องตามต่อ [ACT]</span>
+              </div>
+              <p class="text-slate-300 text-[11px] leading-relaxed max-h-36 overflow-y-auto custom-scrollbar" id="execSummaryActions">
+                ยังไม่มีข้อมูลสิ่งที่ต้องตามต่อ
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Individual Visit Feed Cards -->
+        <div>
+          <div class="flex justify-between items-center mb-3">
+            <h3 class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+              <span>📸</span> รายการบันทึกการเข้าเยี่ยมที่สกัดได้ (<span id="visitCardCount">0</span> รายการ)
+            </h3>
+            <span class="text-xs text-slate-400">เรียงตามวันที่เข้าเยี่ยมล่าสุด</span>
+          </div>
+
+          <div id="siteVisitCardsContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div class="col-span-full py-12 text-center text-slate-400 bg-slate-50 border border-dashed border-slate-200 rounded-xl">
+              <div class="text-3xl mb-2">📸</div>
+              <p class="text-sm font-medium">ยังไม่มีข้อมูลรูปภาพการเข้าเยี่ยมหน้างานในระบบ</p>
+              <p class="text-xs text-slate-400 mt-1">คลิกปุ่ม "อัปโหลดรูปภาพเข้าเยี่ยม" ด้านบนเพื่อเริ่มใช้ Gemini AI สรุปข้อมูล</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dashboard Content (Existing) -->
+    <div id="dashboardSection" class="hidden space-y-6">
+      <!-- KPI Summary Cards -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-slate-400 uppercase tracking-wider" id="kpiLabelRopp">มูลค่าโอกาสรวม (บาท)</span>
+            <span class="text-blue-500 bg-blue-50 p-1.5 rounded-lg text-sm">🎯</span>
+          </div>
+          <div class="text-2xl font-bold text-slate-800 mt-2" id="kpiTotalRopp">0.00</div>
+          <p class="text-xs text-slate-400 mt-1" id="kpiSubRopp">Total Ropp</p>
+        </div>
+
+        <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-slate-400 uppercase tracking-wider" id="kpiLabelAct">ยอดขายจริงรวม (บาท)</span>
+            <span class="text-emerald-500 bg-emerald-50 p-1.5 rounded-lg text-sm">💰</span>
+          </div>
+          <div class="text-2xl font-bold text-emerald-600 mt-2" id="kpiTotalAct">0.00</div>
+          <p class="text-xs text-slate-400 mt-1" id="kpiSubAct">Total Act</p>
+        </div>
+
+        <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">อัตราความสำเร็จ</span>
+            <span class="text-indigo-500 bg-indigo-50 p-1.5 rounded-lg text-sm">📈</span>
+          </div>
+          <div class="text-2xl font-bold text-indigo-600 mt-2" id="kpiRealizeRate">0%</div>
+          <p class="text-xs text-slate-400 mt-1">สัดส่วนยอดขายจริงต่อโอกาส</p>
+        </div>
+
+        <!-- Card Cross-sell: คลิกดูรายละเอียดได้ -->
+        <div onclick="openCrossSellModal()" class="bg-white p-5 rounded-xl border border-slate-200 hover:border-amber-400 transition-all cursor-pointer shadow-sm group">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-slate-400 uppercase tracking-wider group-hover:text-amber-700">โครงการ CROSS-SELL</span>
+            <span class="text-amber-500 bg-amber-50 p-1.5 rounded-lg text-sm group-hover:bg-amber-100">🔄</span>
+          </div>
+          <div class="text-2xl font-bold text-slate-800 mt-2 group-hover:text-amber-600 flex items-center justify-between">
+            <span id="kpiCrossSellCount">0</span>
+            <span class="text-[11px] font-normal text-amber-600 underline">คลิกดูรายชื่อ</span>
+          </div>
+          <p class="text-xs text-slate-400 mt-1">ซื้อจริงมากกว่า 1 กลุ่มสินค้า</p>
+        </div>
+
+        <div class="bg-white p-5 rounded-xl border border-rose-200 bg-gradient-to-br from-rose-50/50 to-white shadow-sm">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-rose-600 uppercase tracking-wider">Actual หาย > 2 เดือน</span>
+            <span class="text-rose-500 bg-rose-100 p-1.5 rounded-lg text-sm">⚠️</span>
+          </div>
+          <div class="text-2xl font-bold text-rose-600 mt-2" id="kpiInactiveCount">0 รายการ</div>
+          <p class="text-xs text-rose-500 font-medium mt-1" id="kpiInactiveRevenue">ในอดีต: 0.00</p>
+        </div>
+      </div>
+
+      <!-- SECTION: รายงานยอดขายจริงเชื่อมโยงผ่านผู้แทนจำหน่าย (Dealer) -->
+      <div id="dealerSection" class="bg-white rounded-xl border border-emerald-200 shadow-sm overflow-hidden">
+        <div class="p-5 border-b border-emerald-100 bg-emerald-50/70 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="bg-emerald-600 text-white text-xs px-2.5 py-0.5 rounded-md font-bold">Dealer Matched Only</span>
+              <h2 class="text-lg font-bold text-emerald-950 flex items-center gap-2">
+                <span>🏬</span> รายงานยอดขายจริงเชื่อมโยงผ่านผู้แทนจำหน่าย (Dealer)
+              </h2>
+            </div>
+            <p class="text-xs text-emerald-700 mt-1">
+              แสดงเฉพาะโครงการที่รหัสตรงกับไฟล์ยอดขาย (<span id="dealerMatchSummary">รอการอัปโหลดไฟล์ Dealer</span>)
+            </p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <select id="dealerProjectFilter" class="text-xs px-2.5 py-1.5 border border-emerald-300 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-400 shadow-sm max-w-[180px]">
+              <option value="all">โครงการทั้งหมด</option>
+            </select>
+            <select id="dealerYearFilter" class="text-xs px-2.5 py-1.5 border border-emerald-300 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-400 shadow-sm">
+              <option value="all">ปีทั้งหมด</option>
+            </select>
+            <select id="dealerMonthFilter" class="text-xs px-2.5 py-1.5 border border-emerald-300 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-400 shadow-sm">
+              <option value="all">เดือนทั้งหมด</option>
+            </select>
+            <input type="text" id="dealerSearchInput" placeholder="ค้นหา Dealer, รหัส หรือชื่อ..."
+                   class="text-xs px-3 py-1.5 border border-emerald-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-white shadow-sm w-36 sm:w-44">
+            <button onclick="exportDealerToExcel()" class="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm transition-all">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+              Export Excel
+            </button>
+          </div>
+        </div>
+        <div class="p-4 grid grid-cols-1 sm:grid-cols-3 gap-3 bg-emerald-50/30 border-b border-emerald-100 text-xs">
+          <div class="bg-white p-3 rounded-lg border border-emerald-100 shadow-sm flex justify-between items-center">
+            <span class="text-slate-500 font-medium">รายการที่จับคู่ตรงกัน (Matched):</span>
+            <span class="text-sm font-bold text-emerald-700 font-mono" id="dealerMatchedCount">0 รายการ</span>
+          </div>
+          <div class="bg-white p-3 rounded-lg border border-emerald-100 shadow-sm flex justify-between items-center">
+            <span class="text-slate-500 font-medium">ปริมาณขายจริงรวม (Actual):</span>
+            <span class="text-sm font-bold text-slate-800 font-mono" id="dealerTotalActualQty">0.00</span>
+          </div>
+          <div class="bg-white p-3 rounded-lg border border-emerald-100 shadow-sm flex justify-between items-center">
+            <span class="text-slate-500 font-medium">ยอดขายสุทธิรวม (NetAmount):</span>
+            <span class="text-sm font-bold text-emerald-600 font-mono" id="dealerTotalNetAmount">0.00 บาท</span>
+          </div>
+        </div>
+        <div class="overflow-x-auto custom-scrollbar max-h-80 relative">
+          <table class="w-full text-left text-xs border-collapse">
+            <thead class="bg-emerald-100/70 text-slate-700 font-semibold sticky top-0 z-10 border-b border-emerald-200 select-none shadow-sm">
+              <tr>
+                <th class="py-2.5 px-3">ผู้แทนจำหน่าย (Dealer)</th>
+                <th class="py-2.5 px-3">รหัสโครงการ (BP_PROJECT_SITE)</th>
+                <th class="py-2.5 px-3">ชื่อโครงการ</th>
+                <th class="py-2.5 px-3">กลุ่มสินค้า</th>
+                <th class="py-2.5 px-2 text-center">เดือน/ปี</th>
+                <th class="py-2.5 px-3 text-right">ปริมาณขาย (Actual)</th>
+                <th class="py-2.5 px-3 text-center">หน่วย (Actual_RUNIT)</th>
+                <th class="py-2.5 px-3 text-right">ยอดสุทธิ (NetAmount บาท)</th>
+              </tr>
+            </thead>
+            <tbody id="dealerTableBody" class="divide-y divide-emerald-50 text-slate-700 bg-white">
+              <tr>
+                <td colspan="8" class="py-8 text-center text-slate-400">ยังไม่มีข้อมูลยอดขาย Dealer หรือยังไม่ได้อัปโหลดไฟล์</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- SECTION: กราฟเปรียบเทียบ Ropp vs Dealer Actual (2 มุม: รายโครงการ & รายกลุ่มสินค้า) -->
+      <div class="bg-white rounded-xl border border-emerald-200 shadow-sm p-5 space-y-5">
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-emerald-100 pb-3">
+          <div>
+            <h2 class="text-lg font-bold text-emerald-950 flex items-center gap-2">
+              <span>📊</span> เปรียบเทียบ Ropp (ยอดขาย) vs Dealer Actual (ผู้แทนจำหน่าย)
+            </h2>
+            <p class="text-xs text-emerald-700 mt-0.5" id="dealerCompSubtitle">
+              จับคู่รหัสโครงการและกลุ่มสินค้า เปรียบเทียบโอกาส (Ropp) กับยอดขายจริงผ่านผู้แทนจำหน่าย (Dealer Actual)
+            </p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <!-- Multi-select Filter รายโครงการสำหรับ Dealer Comparison -->
+            <div class="relative">
+              <button id="dealerCompProjectDropdownBtn" type="button" class="inline-flex items-center gap-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all">
+                <span>🏗️</span>
+                <span id="dealerCompProjectDropdownLabel">เลือกโครงการทั้งหมด</span>
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+              </button>
+              <div id="dealerCompProjectDropdownMenu" class="hidden absolute right-0 mt-2 w-80 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-3 space-y-2">
+                <div class="flex justify-between items-center pb-2 border-b border-slate-100">
+                  <span class="text-xs font-bold text-slate-700">กรองรายโครงการ (Dealer vs Ropp)</span>
+                  <div class="flex gap-2">
+                    <button type="button" onclick="selectAllDealerCompProjects(true)" class="text-[11px] text-emerald-600 hover:underline">เลือกทั้งหมด</button>
+                    <span class="text-slate-300">|</span>
+                    <button type="button" onclick="selectAllDealerCompProjects(false)" class="text-[11px] text-slate-500 hover:underline">ล้างค่า</button>
+                  </div>
+                </div>
+                <input type="text" id="dealerCompProjectSearchInput" placeholder="ค้นหาชื่อโครงการ..." class="w-full text-xs px-2.5 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 mb-1">
+                <div id="dealerCompProjectCheckboxList" class="max-h-56 overflow-y-auto custom-scrollbar space-y-1.5 text-xs text-slate-700"></div>
+              </div>
+            </div>
+
+            <!-- Multi-select Filter กลุ่มสินค้าสำหรับ Dealer Comparison -->
+            <div class="relative">
+              <button id="dealerCompProductDropdownBtn" type="button" class="inline-flex items-center gap-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all">
+                <span>🏷️</span>
+                <span id="dealerCompProductDropdownLabel">เลือกกลุ่มสินค้าทั้งหมด</span>
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+              </button>
+              <div id="dealerCompProductDropdownMenu" class="hidden absolute right-0 mt-2 w-72 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-3 space-y-2">
+                <div class="flex justify-between items-center pb-2 border-b border-slate-100">
+                  <span class="text-xs font-bold text-slate-700">กรองกลุ่มสินค้า (Dealer vs Ropp)</span>
+                  <div class="flex gap-2">
+                    <button type="button" onclick="selectAllDealerCompProducts(true)" class="text-[11px] text-emerald-600 hover:underline">เลือกทั้งหมด</button>
+                    <span class="text-slate-300">|</span>
+                    <button type="button" onclick="selectAllDealerCompProducts(false)" class="text-[11px] text-slate-500 hover:underline">ล้างค่า</button>
+                  </div>
+                </div>
+                <div id="dealerCompProductCheckboxList" class="max-h-56 overflow-y-auto custom-scrollbar space-y-1.5 text-xs text-slate-700"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2 Separate Charts for Dealer Comparison -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-1">
+          <!-- Chart 1: รายโครงการ -->
+          <div class="flex flex-col bg-slate-50/50 p-4 rounded-xl border border-slate-100">
+            <div class="mb-3">
+              <h3 class="text-sm font-bold text-slate-800 flex items-center gap-1.5" id="chartDealerCompProjectTitle">
+                <span>🏗️</span> Ropp vs Dealer Actual ใน Top 10 โครงการ
+              </h3>
+              <p class="text-[11px] text-slate-400">เปรียบเทียบยอดโอกาส (Ropp) กับยอดขายจริงผ่าน Dealer ของแต่ละโครงการ</p>
+            </div>
+            <div class="relative flex-1 min-h-[320px]">
+              <canvas id="dealerCompProjectChart"></canvas>
+            </div>
+          </div>
+
+          <!-- Chart 2: รายกลุ่มสินค้า -->
+          <div class="flex flex-col bg-slate-50/50 p-4 rounded-xl border border-slate-100">
+            <div class="mb-3">
+              <h3 class="text-sm font-bold text-slate-800 flex items-center gap-1.5" id="chartDealerCompProductTitle">
+                <span>📦</span> Ropp vs Dealer Actual รายกลุ่มสินค้า (Top Products)
+              </h3>
+              <p class="text-[11px] text-slate-400">เปรียบเทียบยอดโอกาส (Ropp) กับยอดขายจริงผ่าน Dealer ของแต่ละกลุ่มสินค้า</p>
+            </div>
+            <div class="relative flex-1 min-h-[320px]">
+              <canvas id="dealerCompProductChart"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SECTION: Forecast Dashboard & Charts -->
+      <div class="bg-white rounded-xl border border-indigo-200 shadow-sm p-5 space-y-5">
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-indigo-100 pb-3">
+          <div>
+            <h2 class="text-lg font-bold text-indigo-900 flex items-center gap-2">
+              <span>🔮</span> คาดการณ์ยอดขายล่วงหน้า (Sales Forecast)
+            </h2>
+            <p class="text-xs text-indigo-600 mt-0.5" id="forecastSubtitle">
+              คำนวณจากแผนโอกาสขายล่วงหน้า (Ropp)
+            </p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <!-- Multi-select Filter รายโครงการสำหรับ Forecast -->
+            <div class="relative">
+              <button id="forecastProjectDropdownBtn" type="button" class="inline-flex items-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all">
+                <span>🏗️</span>
+                <span id="forecastProjectDropdownLabel">เลือกโครงการทั้งหมด</span>
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+              </button>
+              <div id="forecastProjectDropdownMenu" class="hidden absolute right-0 mt-2 w-80 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-3 space-y-2">
+                <div class="flex justify-between items-center pb-2 border-b border-slate-100">
+                  <span class="text-xs font-bold text-slate-700">กรองรายโครงการ (Forecast)</span>
+                  <div class="flex gap-2">
+                    <button type="button" onclick="selectAllForecastProjects(true)" class="text-[11px] text-indigo-600 hover:underline">เลือกทั้งหมด</button>
+                    <span class="text-slate-300">|</span>
+                    <button type="button" onclick="selectAllForecastProjects(false)" class="text-[11px] text-slate-500 hover:underline">ล้างค่า</button>
+                  </div>
+                </div>
+                <input type="text" id="forecastProjectSearchInput" placeholder="ค้นหาชื่อโครงการ..." class="w-full text-xs px-2.5 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 mb-1">
+                <div id="forecastProjectCheckboxList" class="max-h-56 overflow-y-auto custom-scrollbar space-y-1.5 text-xs text-slate-700"></div>
+              </div>
+            </div>
+
+            <!-- Multi-select Filter กลุ่มสินค้าสำหรับ Forecast -->
+            <div class="relative">
+              <button id="forecastProductDropdownBtn" type="button" class="inline-flex items-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all">
+                <span>🏷️</span>
+                <span id="forecastProductDropdownLabel">เลือกกลุ่มสินค้าทั้งหมด</span>
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+              </button>
+              <div id="forecastProductDropdownMenu" class="hidden absolute right-0 mt-2 w-72 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-3 space-y-2">
+                <div class="flex justify-between items-center pb-2 border-b border-slate-100">
+                  <span class="text-xs font-bold text-slate-700">กรองกลุ่มสินค้า</span>
+                  <div class="flex gap-2">
+                    <button type="button" onclick="selectAllForecastProducts(true)" class="text-[11px] text-indigo-600 hover:underline">เลือกทั้งหมด</button>
+                    <span class="text-slate-300">|</span>
+                    <button type="button" onclick="selectAllForecastProducts(false)" class="text-[11px] text-slate-500 hover:underline">ล้างค่า</button>
+                  </div>
+                </div>
+                <div id="forecastProductCheckboxList" class="max-h-56 overflow-y-auto custom-scrollbar space-y-1.5 text-xs text-slate-700"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-1">
+          <!-- Forecast Chart 1: รายกลุ่มสินค้า -->
+          <div class="flex flex-col bg-slate-50/50 p-4 rounded-xl border border-slate-100">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-3">
+              <div>
+                <h3 class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                  <span>📦</span> Forecast รายกลุ่มสินค้า (Col E)
+                </h3>
+                <p class="text-[11px] text-slate-400">เปรียบเทียบความต้องการรายสินค้าตามช่วงเดือน (สูงสุด 4 เดือน)</p>
+              </div>
+              <div class="flex items-center gap-1 bg-white border border-slate-200 px-2 py-1 rounded-lg text-xs shadow-sm">
+                <span class="text-slate-500">ตั้งแต่:</span>
+                <select id="forecastStartSelect" class="bg-white text-slate-700 font-medium focus:outline-none"></select>
+                <span class="text-slate-500 ml-1">ถึง:</span>
+                <select id="forecastEndSelect" class="bg-white text-slate-700 font-medium focus:outline-none"></select>
+              </div>
+            </div>
+            <div class="relative flex-1 min-h-[320px]">
+              <canvas id="forecastProductChart"></canvas>
+            </div>
+          </div>
+
+          <!-- Forecast Chart 2: รายโครงการ (Stack ตามรายสินค้า) -->
+          <div class="flex flex-col bg-slate-50/50 p-4 rounded-xl border border-slate-100">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-3">
+              <div>
+                <h3 class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                  <span>🏗️</span> Forecast รายโครงการ (Top Projects)
+                </h3>
+                <p class="text-[11px] text-slate-400">Stacked Bar แยกกลุ่มสินค้า แสดงเฉพาะ 1 เดือนที่เลือก (สีสินค้าตรงกับกราฟซ้าย)</p>
+              </div>
+              <div class="flex items-center gap-1.5 bg-white border border-slate-200 px-2.5 py-1 rounded-lg text-xs shadow-sm">
+                <span class="text-slate-500 font-medium">เดือนที่ดู:</span>
+                <select id="forecastProjectSingleMonthSelect" class="bg-white text-indigo-700 font-bold focus:outline-none"></select>
+              </div>
+            </div>
+            <div class="relative flex-1 min-h-[320px]">
+              <canvas id="forecastProjectChart"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Matrix Forecast Table -->
+        <div class="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm mt-4">
+          <div class="p-4 border-b border-slate-200 bg-indigo-50/40 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+            <div>
+              <h3 class="text-sm font-bold text-indigo-950 flex items-center gap-1.5">
+                <span>📑</span> ตาราง Matrix คาดการณ์ยอดขาย (โครงการ x กลุ่มสินค้า)
+              </h3>
+              <p class="text-xs text-indigo-700 mt-0.5">
+                แกนตั้งคือรายชื่อโครงการ และแกนนอนคือกลุ่มสินค้า (Column E) กรองตามโครงการและสินค้าที่เลือก
+              </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <div class="flex items-center gap-1.5 bg-white border border-indigo-200 px-3 py-1.5 rounded-lg text-xs shadow-sm">
+                <span class="text-slate-600 font-medium">เลือกเดือน:</span>
+                <select id="matrixMonthSelect" class="bg-white text-indigo-700 font-bold focus:outline-none"></select>
+              </div>
+              <input type="text" id="matrixSearchInput" placeholder="ค้นหาโครงการ..."
+                     class="text-xs px-3 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white shadow-sm w-40 sm:w-48">
+              <button onclick="exportForecastMatrixToExcel()" class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm transition-all">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                Export Excel
+              </button>
+            </div>
+          </div>
+          <div class="overflow-x-auto custom-scrollbar max-h-96 relative">
+            <table class="w-full text-left text-xs border-collapse" id="forecastMatrixTable">
+              <thead class="bg-slate-100 text-slate-700 font-semibold sticky top-0 z-10 border-b border-slate-200 shadow-sm" id="matrixTableHead"></thead>
+              <tbody id="matrixTableBody" class="divide-y divide-slate-100 text-slate-700 bg-white"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Inactive Actual Monitor Table -->
+      <div class="bg-white rounded-xl border border-rose-200 shadow-sm overflow-hidden">
+        <div class="p-5 border-b border-rose-100 bg-rose-50 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+          <div>
+            <h2 class="text-lg font-bold text-rose-900 flex items-center gap-2">
+              <span>🚨</span> ตรวจสอบโครงการที่ยอด Actual หายไปเกิน 2 เดือน (เทียบกับปัจจุบัน)
+            </h2>
+            <p class="text-xs text-rose-700 mt-0.5">
+              แสดงเฉพาะสินค้าที่เคยซื้อจริงในอดีต แต่ไม่มียอดสั่งซื้อติดต่อกันเกิน 2 เดือนจนถึงปัจจุบัน (คลิกหัวตารางเพื่อ Sort)
+            </p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="text" id="inactiveSearchInput" placeholder="ค้นหาโครงการ หรือ สินค้า..."
+                   class="text-xs px-3 py-1.5 border border-rose-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-400 bg-white shadow-sm w-44 sm:w-56">
+            <select id="inactiveMonthFilter" class="text-xs px-2.5 py-1.5 border border-rose-200 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-rose-400">
+              <option value="all">ระยะเวลาทั้งหมด (≥ 2 เดือน)</option>
+              <option value="2">หายไป 2 เดือนพอดี</option>
+              <option value="3+">หายไป 3 เดือนขึ้นไป (วิกฤต)</option>
+            </select>
+            <button onclick="exportInactiveToExcel()" class="inline-flex items-center gap-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm transition-all">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+              Export Excel
+            </button>
+          </div>
+        </div>
+        <div class="overflow-x-auto custom-scrollbar max-h-80 relative">
+          <table class="w-full text-left text-sm border-collapse">
+            <thead class="bg-rose-100 text-slate-700 text-xs font-semibold sticky top-0 z-10 border-b border-rose-200 shadow-sm select-none">
+              <tr>
+                <th class="py-3 px-4 bg-rose-100 cursor-pointer hover:bg-rose-200 transition-colors" onclick="sortInactive('projectName')">
+                  ชื่อโครงการ / รหัส <span id="sort-inactive-projectName" class="text-slate-400 font-normal">⇅</span>
+                </th>
+                <th class="py-3 px-4 bg-rose-100 cursor-pointer hover:bg-rose-200 transition-colors" onclick="sortInactive('productGroup')">
+                  กลุ่มสินค้าที่ยอดดรอป (Col E) <span id="sort-inactive-productGroup" class="text-slate-400 font-normal">⇅</span>
+                </th>
+                <th class="py-3 px-4 bg-rose-100 text-center cursor-pointer hover:bg-rose-200 transition-colors" onclick="sortInactive('lastMonthYear')">
+                  เดือน/ปี ที่ซื้อล่าสุด <span id="sort-inactive-lastMonthYear" class="text-slate-400 font-normal">⇅</span>
+                </th>
+                <th class="py-3 px-4 bg-rose-100 text-right cursor-pointer hover:bg-rose-200 transition-colors" onclick="sortInactive('lastActVal')" id="inactiveLastActHead">
+                  ยอดซื้อล่าสุด <span id="sort-inactive-lastActVal" class="text-slate-400 font-normal">⇅</span>
+                </th>
+                <th class="py-3 px-4 bg-rose-100 text-right cursor-pointer hover:bg-rose-200 transition-colors" onclick="sortInactive('avgPastAct')" id="inactiveAvgPastHead">
+                  ยอดเฉลี่ยในอดีต <span id="sort-inactive-avgPastAct" class="text-slate-400 font-normal">⇅</span>
+                </th>
+                <th class="py-3 px-4 bg-rose-100 text-center cursor-pointer hover:bg-rose-200 transition-colors" onclick="sortInactive('inactiveMonths')">
+                  ขาดการซื้อไป <span id="sort-inactive-inactiveMonths" class="text-slate-400 font-normal">▼</span>
+                </th>
+                <th class="py-3 px-4 bg-rose-100 text-center">ระดับความเสี่ยง</th>
+              </tr>
+            </thead>
+            <tbody id="inactiveTableBody" class="divide-y divide-rose-100 text-slate-700 text-xs bg-white"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Analysis Filter -->
+      <div class="bg-indigo-50/70 border border-indigo-200 rounded-xl p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 shadow-sm">
+        <div class="flex items-center gap-2">
+          <span class="text-lg">🗓️</span>
+          <div>
+            <h3 class="text-sm font-bold text-indigo-950">กำหนดช่วงเวลา, โครงการ & สินค้า สำหรับวิเคราะห์ Ropp vs Act</h3>
+            <p class="text-xs text-indigo-700">กรองข้อมูลในกราฟเปรียบเทียบ Ropp vs Act และตารางวิเคราะห์ด้านล่าง</p>
+          </div>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- Multi-select Filter รายโครงการสำหรับ Ropp vs Act -->
+          <div class="relative">
+            <button id="analysisProjectDropdownBtn" type="button" class="inline-flex items-center gap-2 bg-white hover:bg-indigo-50 text-indigo-900 border border-indigo-200 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all">
+              <span>🏗️</span>
+              <span id="analysisProjectDropdownLabel">เลือกโครงการทั้งหมด</span>
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+            </button>
+            <div id="analysisProjectDropdownMenu" class="hidden absolute right-0 mt-2 w-80 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-3 space-y-2">
+              <div class="flex justify-between items-center pb-2 border-b border-slate-100">
+                <span class="text-xs font-bold text-slate-700">กรองรายโครงการ (Opp vs Act)</span>
+                <div class="flex gap-2">
+                  <button type="button" onclick="selectAllAnalysisProjects(true)" class="text-[11px] text-indigo-600 hover:underline">เลือกทั้งหมด</button>
+                  <span class="text-slate-300">|</span>
+                  <button type="button" onclick="selectAllAnalysisProjects(false)" class="text-[11px] text-slate-500 hover:underline">ล้างค่า</button>
+                </div>
+              </div>
+              <input type="text" id="analysisProjectSearchInput" placeholder="ค้นหาชื่อโครงการ..." class="w-full text-xs px-2.5 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 mb-1">
+              <div id="analysisProjectCheckboxList" class="max-h-56 overflow-y-auto custom-scrollbar space-y-1.5 text-xs text-slate-700"></div>
+            </div>
+          </div>
+
+          <!-- Multi-select Filter กลุ่มสินค้าสำหรับ Ropp vs Act -->
+          <div class="relative">
+            <button id="analysisProductDropdownBtn" type="button" class="inline-flex items-center gap-2 bg-white hover:bg-indigo-50 text-indigo-900 border border-indigo-200 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all">
+              <span>🏷️</span>
+              <span id="analysisProductDropdownLabel">เลือกกลุ่มสินค้าทั้งหมด</span>
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+            </button>
+            <div id="analysisProductDropdownMenu" class="hidden absolute right-0 mt-2 w-72 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-3 space-y-2">
+              <div class="flex justify-between items-center pb-2 border-b border-slate-100">
+                <span class="text-xs font-bold text-slate-700">กรองกลุ่มสินค้า (Opp vs Act)</span>
+                <div class="flex gap-2">
+                  <button type="button" onclick="selectAllAnalysisProducts(true)" class="text-[11px] text-indigo-600 hover:underline">เลือกทั้งหมด</button>
+                  <span class="text-slate-300">|</span>
+                  <button type="button" onclick="selectAllAnalysisProducts(false)" class="text-[11px] text-slate-500 hover:underline">ล้างค่า</button>
+                </div>
+              </div>
+              <div id="analysisProductCheckboxList" class="max-h-56 overflow-y-auto custom-scrollbar space-y-1.5 text-xs text-slate-700"></div>
+            </div>
+          </div>
+
+          <!-- Date Range Selectors -->
+          <div class="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-indigo-200 shadow-sm text-xs">
+            <span class="text-slate-500 font-medium">เริ่มต้น:</span>
+            <select id="analysisStartSelect" class="bg-white text-indigo-700 font-semibold focus:outline-none"></select>
+            <span class="text-slate-500 font-medium ml-1">สิ้นสุด:</span>
+            <select id="analysisEndSelect" class="bg-white text-indigo-700 font-semibold focus:outline-none"></select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Charts Section (Ropp vs Act ปัจจุบัน) -->
+      <div class="space-y-6">
+        <!-- Monthly Trend Chart -->
+        <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col">
+          <div class="mb-4">
+            <h3 class="text-base font-bold text-slate-800" id="chartMonthlyTrendTitle">เปรียบเทียบ Ropp vs Act รายเดือน (Monthly Trend)</h3>
+            <p class="text-xs text-slate-400">แสดงภาพรวมยอดโอกาส (Ropp) เทียบยอดขายจริง (Act) ในแต่ละเดือนตามช่วงเวลาและเงื่อนไขที่เลือก</p>
+          </div>
+          <div class="relative min-h-[300px]">
+            <canvas id="monthlyTrendChart"></canvas>
+          </div>
+        </div>
+
+        <!-- 2 Grid Charts -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col">
+            <div class="mb-4">
+              <h3 class="text-base font-bold text-slate-800" id="chartTopProjectsTitle">เปรียบเทียบ Ropp vs Act ใน Top 10 โครงการ</h3>
+              <p class="text-xs text-slate-400">แสดงเฉพาะชื่อโครงการที่มีผลรวมสูงสุดตามเงื่อนไขโครงการและสินค้าที่เลือก</p>
+            </div>
+            <div class="relative flex-1 min-h-[320px]">
+              <canvas id="topProjectsChart"></canvas>
+            </div>
+          </div>
+
+          <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col">
+            <div class="mb-4">
+              <h3 class="text-base font-bold text-slate-800" id="chartTopProductsTitle">ยอดสูงสุดรายกลุ่มสินค้า (จาก Column E)</h3>
+              <p class="text-xs text-slate-400">จัดอันดับกลุ่มสินค้า Product Group ที่มียอดรวมสูงสุดตามเงื่อนไขที่เลือก</p>
+            </div>
+            <div class="relative flex-1 min-h-[320px]">
+              <canvas id="topProductsChart"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Analysis Table -->
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="p-5 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h2 class="text-lg font-bold text-slate-800">วิเคราะห์สินค้าที่ซื้อจริงและโอกาส Cross-sell รายโครงการ</h2>
+            <p class="text-xs text-slate-400 mt-0.5">
+              คลิกที่ <span class="text-indigo-600 font-semibold underline">ชื่อโครงการ</span> เพื่อดูรายละเอียดสินค้า หรือคลิกหัวตารางเพื่อจัดเรียง (Sort)
+            </p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="text" id="projectSearchInput" placeholder="ค้นหาชื่อโครงการ หรือ รหัส..."
+                   class="text-xs px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 w-56 shadow-sm">
+            <button onclick="exportProjectsToExcel()" class="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-2 rounded-lg shadow-sm transition-all">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+              Export Excel
+            </button>
+          </div>
+        </div>
+        <div class="overflow-x-auto custom-scrollbar max-h-[500px]">
+          <table class="w-full text-left text-sm border-collapse">
+            <thead class="bg-slate-100 text-slate-700 text-xs font-semibold sticky top-0 z-10 border-b border-slate-200 select-none shadow-sm">
+              <tr>
+                <th class="py-3 px-4 bg-slate-100 cursor-pointer hover:bg-slate-200 transition-colors" onclick="sortTable('name')">
+                  ชื่อโครงการ / รหัส <span id="sort-name" class="text-slate-400 font-normal">⇅</span>
+                </th>
+                <th class="py-3 px-4 bg-slate-100">สินค้าที่เกิด Actual แล้ว (Col E)</th>
+                <th class="py-3 px-4 bg-slate-100" id="thTopOpp">สินค้าที่มี Opp สูงสุด 3 อันดับ</th>
+                <th class="py-3 px-4 bg-slate-100 text-right cursor-pointer hover:bg-slate-200 transition-colors" onclick="sortTable('ropp')" id="thRopp">
+                  ยอดโอกาส <span id="sort-ropp" class="text-slate-400 font-normal">⇅</span>
+                </th>
+                <th class="py-3 px-4 bg-slate-100 text-right cursor-pointer hover:bg-slate-200 transition-colors" onclick="sortTable('act')" id="thAct">
+                  ยอดจริง <span id="sort-act" class="text-slate-400 font-normal">⇅</span>
+                </th>
+                <th class="py-3 px-4 bg-slate-100 text-right cursor-pointer hover:bg-slate-200 transition-colors" onclick="sortTable('rate')">
+                  % Realized <span id="sort-rate" class="text-slate-400 font-normal">⇅</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody id="projectTableBody" class="divide-y divide-slate-100 text-slate-700 text-xs bg-white"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Cross-sell List Modal -->
+  <div id="crossSellModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[85vh] flex flex-col overflow-hidden border border-slate-100">
+      <div class="p-5 border-b border-slate-200 bg-amber-50/70 flex justify-between items-start">
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="bg-amber-100 text-amber-800 text-xs px-2.5 py-0.5 rounded-md font-semibold">Cross-sell Projects</span>
+            <span class="text-xs text-slate-500" id="crossSellModalCount">0 โครงการ</span>
+          </div>
+          <h3 class="text-lg font-bold text-slate-900 mt-1">รายชื่อโครงการที่มียอดซื้อจริง (Actual) มากกว่า 1 สินค้า</h3>
+          <p class="text-xs text-slate-500">คลิกที่ชื่อโครงการเพื่อดูรายละเอียดยอดเงินและสินค้าทั้งหมดในโครงการ</p>
+        </div>
+        <button onclick="closeCrossSellModal()" class="text-slate-400 hover:text-slate-700 bg-white hover:bg-slate-200 p-2 rounded-full transition-all">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="p-4 border-b border-slate-100 bg-white flex justify-between items-center gap-3">
+        <input type="text" id="crossSellSearchInput" placeholder="ค้นหาชื่อโครงการ หรือ สินค้าที่ซื้อ..." class="text-xs px-3 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 w-full sm:w-72">
+        <button onclick="exportCrossSellToExcel()" class="inline-flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm transition-all whitespace-nowrap">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          Export Excel
+        </button>
+      </div>
+      <div class="overflow-y-auto p-4 custom-scrollbar flex-1">
+        <div class="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+          <table class="w-full text-left text-xs border-collapse">
+            <thead class="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200">
+              <tr>
+                <th class="py-3 px-4">ชื่อโครงการ / รหัส</th>
+                <th class="py-3 px-3 text-center">จำนวนสินค้าที่ซื้อ</th>
+                <th class="py-3 px-4">กลุ่มสินค้าที่มียอด Actual (Col E)</th>
+                <th class="py-3 px-4 text-right">ยอดซื้อจริงรวม</th>
+              </tr>
+            </thead>
+            <tbody id="crossSellTableBody" class="divide-y divide-slate-100 text-slate-700 bg-white"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="p-3 border-t border-slate-200 bg-slate-50 flex justify-end">
+        <button onclick="closeCrossSellModal()" class="px-5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded-lg transition-colors">
+          ปิดหน้าต่าง
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Project Details Modal -->
+  <div id="projectModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-100">
+      <div class="p-6 border-b border-slate-200 bg-slate-50/70 flex justify-between items-start">
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="bg-indigo-100 text-indigo-700 font-mono text-xs px-2.5 py-0.5 rounded-md font-semibold" id="modalProjectId">-</span>
+            <span class="text-xs text-slate-400">รายละเอียดสินค้าในโครงการ</span>
+          </div>
+          <h3 class="text-xl font-bold text-slate-900 mt-1" id="modalProjectName">-</h3>
+        </div>
+        <button onclick="closeModal()" class="text-slate-400 hover:text-slate-700 bg-white hover:bg-slate-200 p-2 rounded-full transition-all">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="grid grid-cols-3 gap-4 p-5 bg-indigo-50/30 border-b border-indigo-100 text-center">
+        <div class="bg-white p-3 rounded-xl border border-indigo-100 shadow-sm">
+          <div class="text-[11px] text-slate-500 font-medium" id="modalRoppLabel">ยอดโอกาสรวม (Ropp)</div>
+          <div class="text-base font-bold text-blue-600 mt-0.5" id="modalTotalRopp">0.00</div>
+        </div>
+        <div class="bg-white p-3 rounded-xl border border-emerald-100 shadow-sm">
+          <div class="text-[11px] text-slate-500 font-medium" id="modalActLabel">ยอดขายจริงรวม (Act)</div>
+          <div class="text-base font-bold text-emerald-600 mt-0.5" id="modalTotalAct">0.00</div>
+        </div>
+        <div class="bg-white p-3 rounded-xl border border-indigo-100 shadow-sm">
+          <div class="text-[11px] text-slate-500 font-medium">อัตราความสำเร็จ</div>
+          <div class="text-base font-bold text-indigo-600 mt-0.5" id="modalRealizeRate">0%</div>
+        </div>
+      </div>
+      <div class="overflow-y-auto p-6 custom-scrollbar flex-1">
+        <div class="flex justify-between items-center mb-3">
+          <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wider">รายการกลุ่มสินค้าทั้งหมดในโครงการ (Column E)</h4>
+          <button onclick="exportModalProductsToExcel()" class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-semibold px-3 py-1 rounded-lg shadow-sm transition-all">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            Export รายการสินค้านี้ (.xlsx)
+          </button>
+        </div>
+        <div class="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+          <table class="w-full text-left text-xs border-collapse">
+            <thead class="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200">
+              <tr>
+                <th class="py-3 px-4">กลุ่มสินค้า (Col E)</th>
+                <th class="py-3 px-3 text-right">ราคา/หน่วย (บาท)</th>
+                <th class="py-3 px-3 text-right">ปริมาณ Opp (Unit)</th>
+                <th class="py-3 px-3 text-right">ปริมาณ Act (Unit)</th>
+                <th class="py-3 px-4 text-right">มูลค่า Ropp (บาท)</th>
+                <th class="py-3 px-4 text-right">มูลค่า Act (บาท)</th>
+                <th class="py-3 px-4 text-center">สถานะสินค้า</th>
+              </tr>
+            </thead>
+            <tbody id="modalProductTableBody" class="divide-y divide-slate-100 text-slate-700"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="p-4 border-t border-slate-200 bg-slate-50 flex justify-end">
+        <button onclick="closeModal()" class="px-5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded-lg transition-colors">
+          ปิดหน้าต่าง
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Gemini API Key Configuration Modal -->
+  <div id="apiKeyModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-100">
+      <div class="p-5 border-b border-slate-100 bg-purple-50/70 flex justify-between items-center">
+        <div class="flex items-center gap-2">
+          <span class="text-xl">🔑</span>
+          <h3 class="text-base font-bold text-slate-900">กำหนด Gemini API Key</h3>
+        </div>
+        <button onclick="closeApiKeyModal()" class="text-slate-400 hover:text-slate-700 p-1.5 rounded-full hover:bg-white transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="p-5 space-y-4 text-xs">
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Google AI Gemini API Key:</label>
+          <div class="relative">
+            <input type="password" id="geminiApiKeyInput" placeholder="AIzaSy..."
+                   class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono text-xs">
+            <button type="button" onclick="toggleApiKeyVisibility()" class="absolute right-2 top-2 text-slate-400 hover:text-slate-600">
+              👁️
+            </button>
+          </div>
+          <p class="text-[11px] text-slate-500 mt-1.5">
+            ระบบใช้โมเดล <span class="font-bold text-purple-700">gemini-3.5-flash-lite</span> ในการวิเคราะห์ภาพหน้าจอ Key จะถูกเก็บไว้ใน <span class="font-semibold text-slate-700">IndexedDB</span> ในเบราว์เซอร์ของท่าน ไม่มีการเก็บไว้บน Server
+          </p>
+        </div>
+        <div class="bg-purple-50 p-3 rounded-lg border border-purple-100 text-purple-900 text-[11px] leading-relaxed">
+          💡 หากยังไม่มี API Key สามารถสร้างได้ฟรีผ่าน <a href="https://aistudio.google.com/app/apikey" target="_blank" class="text-purple-700 font-bold underline">Google AI Studio</a>
+        </div>
+      </div>
+      <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
+        <button onclick="closeApiKeyModal()" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded-lg transition-colors">
+          ยกเลิก
+        </button>
+        <button onclick="saveApiKeyFromModal()" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors">
+          บันทึก Key
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Utility Escaping functions
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function escapeJsString(str) {
+      if (!str) return '';
+      return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
+    }
+
+    /**
+     * ฟังก์ชันอ่านไฟล์ CSV อัตโนมัติ พร้อมตรวจจับ Encoding ภาษาไทย (UTF-8 vs Windows-874 / TIS-620)
+     */
+    function readFileWithEncodingDetection(file, callback) {
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const buffer = e.target.result;
+        const bytes = new Uint8Array(buffer);
+        let text = '';
+        if (bytes.length >= 3 && bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) {
+          text = new TextDecoder('utf-8').decode(buffer);
+        } else {
+          try {
+            const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
+            text = utf8Decoder.decode(buffer);
+          } catch (err) {
+            try {
+              const thaiDecoder = new TextDecoder('windows-874');
+              text = thaiDecoder.decode(buffer);
+            } catch (thaiErr) {
+              try {
+                const tisDecoder = new TextDecoder('tis-620');
+                text = tisDecoder.decode(buffer);
+              } catch (finalErr) {
+                text = new TextDecoder('utf-8').decode(buffer);
+              }
+            }
+          }
+        }
+        callback(text);
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    // ฐานข้อมูลราคาต่อหน่วยเริ่มต้น
+    let unitPrices = {
+      "คอนกรีตผสมเสร็จ (CPAC &FC)": 1859,
+      "คอนกรีตผสมเสร็จ": 1859,
+      "หลังคา CPAC": 88,
+      "SOLUTION-ROOF TRUSS (SCG)": 400,
+      "ฝ้า - SMB (<=6mm)": 57,
+      "โครงคร่าว - ยิปซั่ม (ตราช้าง)": 12,
+      "ฝ-ใน ยิปซั่ม": 48,
+      "ฝ-ใน โครงคร่าว": 12,
+      "กระเบื้องคอนกรีตปูพื้น - Floor": 316,
+      "รั้วสำเร็จรูป - FENCE (Landscape)": 7083,
+      "ประตูห้องน้ำ": 1,
+      "ครอบ CPAC MONIER": 30,
+      "ประตูภายนอก": 1171,
+      "ไม้พื้นไวนิล": 1171,
+      "ปูนมอร์ตาร์ เทปรับระดับ": 892,
+      "ปูนสกิมโค้ด (เสือ)": 4577,
+      "Paint (NIPPON)": 2244,
+      "DOOR CATEGORY": 1119,
+      "อุปกรณ์ประตู (UNIX)": 1352,
+      "สีทาภายใน (หน่วยถัง : 5 แกลลอน)": 1,
+      "สีรองพื้น (หน่วยถัง : 5 แกลลอน)": 1,
+      "กาวซิเมนต์ (SCG)": 3466,
+      "DRY TECH": 2962,
+      "POST-TENSIONED": 295,
+      "ROOF ACCESSORIES": 1318,
+      "WIRE MESH": 32000,
+      "เสาเข็ม-คาน (CPAC)": 1960,
+      "เหล็กเส้นก่อสร้าง": 25000,
+      "เหล็กรูปพรรณ SYS": 26400,
+      "แป (หลังคา)": 115,
+      "แผ่นพื้นสำเร็จรูป (CPAC)": 384,
+      "ผนัง - พื้น SMB (>6mm)": 108,
+      "ผนังอิฐมวลเบา (Q-CON)": 126,
+      "ฝ้า - ยิปซั่ม (ตราช้าง)": 41,
+      "ลวดผูกเหล็ก (TOPSTEEL)": 100,
+      "หลังคา PRESTIGE": 184,
+      "อุปกรณ์ประปา": 21500,
+      "ปูนปอร์ตแลนด์ (SCG)": 1881,
+      "หลังคา EXCELLA เกล็ดปลา": 125,
+      "Paint (BEGER)": 1370,
+      "หลังคา NEUSTILE": 391,
+      "ครอบ NEUSTILE": 74,
+      "ไม้ฝา": 187,
+      "ไม้ระแนง (SCG)": 155,
+      "ไม้พื้น Smartwood": 626,
+      "กระเบื้องโปร่งแสง (SFG)": 299,
+      "Solution-ระบบเก็บน้ำใต้ดิน": 20000,
+      "ระบบถังเก็บน้ำภายนอก": 20000,
+      "METAL SHEET (SCG)": 300,
+      "Solution-METAL SHEET (SCG)": 128,
+      "หลังคา PROLON": 65,
+      "SOLUTION : ROOF INSTALLATION": 800,
+      "Lintel (Q-Con)": 652,
+      "ปูน Admixed ตราแรด": 2841,
+      "WALL PANEL (Q-CON)": 415,
+      "แผ่นสะท้อนความร้อนหลังคา (SCG)": 44,
+      "ไม้เชิงชาย": 300,
+      "ไม้แบบ (Unix)": 919,
+      "ครอบ EXCELLA": 157,
+      "ครอบ PRESTIGE": 57,
+      "ไม้รั้ว (SCG)": 258,
+      "ไม้บัว": 290,
+      "ไม้มอบ": 241,
+      "ไม้ปิดกันนก": 121,
+      "ไม้บังตา": 201,
+      "ปูนมอร์ตาร์ อื่นๆ": 1389,
+      "บล็อกปูถนน": 60,
+      "ปูนก่อและฉาบ Q-CON": 250,
+      "WOOD ACCESSORIES": 567,
+      "White Cement (SCG)": 7657
+    };
+
+    let displayMode = 'baht';
+    let salesRawRows = null;
+    let dealerRawRows = null;
+    let validProjectIdsSet = new Set();
+    let matchedDealerList = [];
+    let projectList = [];
+    let inactiveList = [];
+    let crossSellProjectsList = [];
+    let projectsMapGlobal = {};
+    let currentModalProjectKey = null;
+    let missingPriceProducts = new Set();
+    let parsedDataRowsGlobal = [];
+    let allMonthHeadersGlobal = [];
+    let availableForecastMonths = [];
+    let allProjectListGlobal = [];
+    let allForecastProductGroups = [];
+
+    // Filter Sets
+    let selectedForecastProducts = new Set();
+    let selectedForecastProjects = new Set();
+    let selectedAnalysisProjects = new Set();
+    let selectedAnalysisProducts = new Set();
+
+    // Filter Sets for Dealer Comparison Charts
+    let selectedDealerCompProjects = new Set();
+    let selectedDealerCompProducts = new Set();
+
+    const globalProductColors = {};
+    const masterColorPalette = [
+      '#f97316', '#6366f1', '#06b6d4', '#10b981', '#f59e0b', '#ec4899',
+      '#8b5cf6', '#3b82f6', '#14b8a6', '#84cc16', '#eab308', '#d946ef',
+      '#ef4444', '#0ea5e9', '#64748b', '#a855f7', '#fb923c', '#2dd4bf'
+    ];
+    let nextColorIndex = 0;
+
+    function getProductColor(productName) {
+      if (!productName) return '#94a3b8';
+      if (!globalProductColors[productName]) {
+        globalProductColors[productName] = masterColorPalette[nextColorIndex % masterColorPalette.length];
+        nextColorIndex++;
+      }
+      return globalProductColors[productName];
+    }
+
+    let currentMatrixData = {
+      projects: [],
+      products: [],
+      matrix: {},
+      projectTotals: {},
+      productTotals: {},
+      grandTotal: 0
+    };
+
+    // Chart instances
+    let chartMonthlyTrendInstance = null;
+    let chartProjectsInstance = null;
+    let chartProductsInstance = null;
+    let chartForecastProductInstance = null;
+    let chartForecastProjectInstance = null;
+    let chartDealerCompProjectInstance = null;
+    let chartDealerCompProductInstance = null;
+
+    let currentSort = { column: 'act', order: 'desc' };
+    let currentInactiveSort = { column: 'inactiveMonths', order: 'desc' };
+
+    const dropZone = document.getElementById('dropZone');
+    const salesFileInput = document.getElementById('salesFileInput');
+    const priceFileInput = document.getElementById('priceFileInput');
+    const dealerFileInput = document.getElementById('dealerFileInput');
+    const unitDisplayModeSelect = document.getElementById('unitDisplayModeSelect');
+
+    const forecastStartSelect = document.getElementById('forecastStartSelect');
+    const forecastEndSelect = document.getElementById('forecastEndSelect');
+    const forecastProjectSingleMonthSelect = document.getElementById('forecastProjectSingleMonthSelect');
+    const matrixMonthSelect = document.getElementById('matrixMonthSelect');
+    const matrixSearchInput = document.getElementById('matrixSearchInput');
+
+    const forecastProductDropdownBtn = document.getElementById('forecastProductDropdownBtn');
+    const forecastProductDropdownMenu = document.getElementById('forecastProductDropdownMenu');
+    const forecastProductCheckboxList = document.getElementById('forecastProductCheckboxList');
+    const forecastProductDropdownLabel = document.getElementById('forecastProductDropdownLabel');
+
+    const forecastProjectDropdownBtn = document.getElementById('forecastProjectDropdownBtn');
+    const forecastProjectDropdownMenu = document.getElementById('forecastProjectDropdownMenu');
+    const forecastProjectCheckboxList = document.getElementById('forecastProjectCheckboxList');
+    const forecastProjectDropdownLabel = document.getElementById('forecastProjectDropdownLabel');
+    const forecastProjectSearchInput = document.getElementById('forecastProjectSearchInput');
+
+    const analysisProjectDropdownBtn = document.getElementById('analysisProjectDropdownBtn');
+    const analysisProjectDropdownMenu = document.getElementById('analysisProjectDropdownMenu');
+    const analysisProjectCheckboxList = document.getElementById('analysisProjectCheckboxList');
+    const analysisProjectDropdownLabel = document.getElementById('analysisProjectDropdownLabel');
+    const analysisProjectSearchInput = document.getElementById('analysisProjectSearchInput');
+
+    const analysisProductDropdownBtn = document.getElementById('analysisProductDropdownBtn');
+    const analysisProductDropdownMenu = document.getElementById('analysisProductDropdownMenu');
+    const analysisProductCheckboxList = document.getElementById('analysisProductCheckboxList');
+    const analysisProductDropdownLabel = document.getElementById('analysisProductDropdownLabel');
+
+    const analysisStartSelect = document.getElementById('analysisStartSelect');
+    const analysisEndSelect = document.getElementById('analysisEndSelect');
+
+    const dealerCompProjectDropdownBtn = document.getElementById('dealerCompProjectDropdownBtn');
+    const dealerCompProjectDropdownMenu = document.getElementById('dealerCompProjectDropdownMenu');
+    const dealerCompProjectCheckboxList = document.getElementById('dealerCompProjectCheckboxList');
+    const dealerCompProjectDropdownLabel = document.getElementById('dealerCompProjectDropdownLabel');
+    const dealerCompProjectSearchInput = document.getElementById('dealerCompProjectSearchInput');
+
+    const dealerCompProductDropdownBtn = document.getElementById('dealerCompProductDropdownBtn');
+    const dealerCompProductDropdownMenu = document.getElementById('dealerCompProductDropdownMenu');
+    const dealerCompProductCheckboxList = document.getElementById('dealerCompProductCheckboxList');
+    const dealerCompProductDropdownLabel = document.getElementById('dealerCompProductDropdownLabel');
+
+    dropZone.addEventListener('click', () => salesFileInput.click());
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('border-indigo-500', 'bg-indigo-50/20'); });
+    dropZone.addEventListener('dragleave', () => { dropZone.classList.remove('border-indigo-500', 'bg-indigo-50/20'); });
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('border-indigo-500', 'bg-indigo-50/20');
+      if (e.dataTransfer.files.length) handleSalesFile(e.dataTransfer.files[0]);
+    });
+
+    salesFileInput.addEventListener('change', (e) => {
+      if (e.target.files.length) handleSalesFile(e.target.files[0]);
+    });
+    priceFileInput.addEventListener('change', (e) => {
+      if (e.target.files.length) handlePriceFile(e.target.files[0]);
+    });
+    dealerFileInput.addEventListener('change', (e) => {
+      if (e.target.files.length) handleDealerFile(e.target.files[0]);
+    });
+
+    unitDisplayModeSelect.addEventListener('change', (e) => {
+      displayMode = e.target.value;
+      updateUIUnitLabels();
+      if (salesRawRows) {
+        processSalesCSV(salesRawRows);
+      }
+      if (dealerRawRows) {
+        renderDealerTable();
+        updateDealerComparisonCharts();
+      }
+    });
+
+    forecastStartSelect.addEventListener('change', handleForecastProductRangeChange);
+    forecastEndSelect.addEventListener('change', handleForecastProductRangeChange);
+    forecastProjectSingleMonthSelect.addEventListener('change', updateForecastProjectChart);
+    matrixMonthSelect.addEventListener('change', updateForecastMatrix);
+    matrixSearchInput.addEventListener('input', renderForecastMatrixTable);
+
+    analysisStartSelect.addEventListener('change', handleAnalysisRangeChange);
+    analysisEndSelect.addEventListener('change', handleAnalysisRangeChange);
+
+    // Dropdown Toggles
+    forecastProductDropdownBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeAllDropdownsExcept(forecastProductDropdownMenu);
+    });
+    forecastProjectDropdownBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeAllDropdownsExcept(forecastProjectDropdownMenu);
+    });
+    analysisProjectDropdownBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeAllDropdownsExcept(analysisProjectDropdownMenu);
+    });
+    analysisProductDropdownBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeAllDropdownsExcept(analysisProductDropdownMenu);
+    });
+    dealerCompProjectDropdownBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeAllDropdownsExcept(dealerCompProjectDropdownMenu);
+    });
+    dealerCompProductDropdownBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeAllDropdownsExcept(dealerCompProductDropdownMenu);
+    });
+
+    function closeAllDropdownsExcept(targetMenu) {
+      const menus = [
+        forecastProductDropdownMenu,
+        forecastProjectDropdownMenu,
+        analysisProjectDropdownMenu,
+        analysisProductDropdownMenu,
+        dealerCompProjectDropdownMenu,
+        dealerCompProductDropdownMenu
+      ];
+      menus.forEach(m => {
+        if (m === targetMenu) {
+          m.classList.toggle('hidden');
+        } else {
+          m.classList.add('hidden');
+        }
+      });
+    }
+
+    forecastProjectSearchInput.addEventListener('input', renderForecastProjectCheckboxes);
+    analysisProjectSearchInput.addEventListener('input', renderAnalysisProjectCheckboxes);
+    dealerCompProjectSearchInput.addEventListener('input', renderDealerCompProjectCheckboxes);
+
+    document.addEventListener('click', (e) => {
+      const pairs = [
+        { menu: forecastProductDropdownMenu, btn: forecastProductDropdownBtn },
+        { menu: forecastProjectDropdownMenu, btn: forecastProjectDropdownBtn },
+        { menu: analysisProjectDropdownMenu, btn: analysisProjectDropdownBtn },
+        { menu: analysisProductDropdownMenu, btn: analysisProductDropdownBtn },
+        { menu: dealerCompProjectDropdownMenu, btn: dealerCompProjectDropdownBtn },
+        { menu: dealerCompProductDropdownMenu, btn: dealerCompProductDropdownBtn }
+      ];
+      pairs.forEach(p => {
+        if (!p.menu.contains(e.target) && !p.btn.contains(e.target)) {
+          p.menu.classList.add('hidden');
+        }
+      });
+    });
+
+    function getUnitSuffix() {
+      return displayMode === 'baht' ? 'บาท' : 'Unit';
+    }
+
+    function updateUIUnitLabels() {
+      const isBaht = displayMode === 'baht';
+      const unitText = isBaht ? 'บาท' : 'Unit';
+
+      document.getElementById('kpiLabelRopp').textContent = `มูลค่าโอกาสรวม (${unitText})`;
+      document.getElementById('kpiLabelAct').textContent = `ยอดขายจริงรวม (${unitText})`;
+      document.getElementById('kpiSubRopp').textContent = `Total Ropp (${isBaht ? 'แปลงเป็นบาทแล้ว' : 'หน่วยสินค้า'})`;
+      document.getElementById('kpiSubAct').textContent = `Total Act (${isBaht ? 'แปลงเป็นบาทแล้ว' : 'หน่วยสินค้า'})`;
+
+      document.getElementById('forecastSubtitle').textContent = isBaht
+        ? 'คำนวณจากแผนโอกาสขายล่วงหน้า (Ropp) คูณราคาต่อหน่วย'
+        : 'คำนวณจากแผนโอกาสขายล่วงหน้า (Ropp) เป็นปริมาณหน่วยสินค้า';
+
+      document.getElementById('chartMonthlyTrendTitle').textContent = `เปรียบเทียบ Ropp vs Act รายเดือน (Monthly Trend - ${unitText})`;
+      document.getElementById('chartTopProjectsTitle').textContent = `เปรียบเทียบ Ropp vs Act ใน Top 10 โครงการ (${unitText})`;
+      document.getElementById('chartTopProductsTitle').textContent = `ยอดสูงสุดรายกลุ่มสินค้า (จาก Column E - ${unitText})`;
+
+      document.getElementById('chartDealerCompProjectTitle').innerHTML = `<span>🏗️</span> Ropp vs Dealer Actual ใน Top 10 โครงการ (${unitText})`;
+      document.getElementById('chartDealerCompProductTitle').innerHTML = `<span>📦</span> Ropp vs Dealer Actual รายกลุ่มสินค้า (${unitText})`;
+
+      document.getElementById('thTopOpp').textContent = `สินค้าที่มี Opp สูงสุด 3 อันดับ (${unitText})`;
+      document.getElementById('thRopp').innerHTML = `ยอดโอกาส (${unitText}) <span id="sort-ropp" class="text-slate-400 font-normal">⇅</span>`;
+      document.getElementById('thAct').innerHTML = `ยอดจริง (${unitText}) <span id="sort-act" class="text-slate-400 font-normal">⇅</span>`;
+
+      document.getElementById('inactiveLastActHead').innerHTML = `ยอดซื้อล่าสุด (${unitText}) <span id="sort-inactive-lastActVal" class="text-slate-400 font-normal">⇅</span>`;
+      document.getElementById('inactiveAvgPastHead').innerHTML = `ยอดเฉลี่ยในอดีต (${unitText}/ด.) <span id="sort-inactive-avgPastAct" class="text-slate-400 font-normal">⇅</span>`;
+
+      document.getElementById('modalRoppLabel').textContent = `ยอดโอกาสรวม (Ropp - ${unitText})`;
+      document.getElementById('modalActLabel').textContent = `ยอดขายจริงรวม (Act - ${unitText})`;
+    }
+
+    function parseNum(val) {
+      if (!val) return 0;
+      const clean = String(val).replace(/,/g, '').trim();
+      const num = parseFloat(clean);
+      return isNaN(num) ? 0 : num;
+    }
+
+    function formatNumber(num) {
+      return (num || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function handlePriceFile(file) {
+      readFileWithEncodingDetection(file, function(csvText) {
+        Papa.parse(csvText, {
+          header: false,
+          skipEmptyLines: true,
+          complete: function(results) {
+            processPriceCSV(results.data);
+            alert('อัปเดตตารางราคาต่อหน่วยเรียบร้อยแล้ว');
+            if (salesRawRows) {
+              processSalesCSV(salesRawRows);
+            }
+          }
+        });
+      });
+    }
+
+    function processPriceCSV(rows) {
+      if (!rows || rows.length < 2) return;
+      const header = rows[0].map(c => String(c || '').trim().toLowerCase());
+      let prodCol = header.findIndex(h => h.includes('สินค้า') || h.includes('product') || h.includes('item'));
+      let priceCol = header.findIndex(h => h.includes('ราคา/หน่วย') || h.includes('price') || h.includes('ราคา'));
+      if (prodCol === -1) prodCol = 0;
+      if (priceCol === -1) priceCol = header.length - 1;
+
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        const prod = (row[prodCol] || '').trim();
+        const price = parseNum(row[priceCol]);
+        if (prod && price > 0) {
+          unitPrices[prod] = price;
+        }
+      }
+    }
+
+    function getUnitPrice(productGroup) {
+      if (!productGroup) return 0;
+      const name = productGroup.trim();
+      if (unitPrices[name] !== undefined) return unitPrices[name];
+
+      const cleanName = name.replace(/[\(\)\[\]\-]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+      for (const [key, price] of Object.entries(unitPrices)) {
+        const cleanKey = key.replace(/[\(\)\[\]\-]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+        if (cleanName === cleanKey) return price;
+      }
+      for (const [key, price] of Object.entries(unitPrices)) {
+        const cleanKey = key.toLowerCase();
+        if (cleanName.includes(cleanKey) || cleanKey.includes(cleanName)) {
+          return price;
+        }
+      }
+      return 0;
+    }
+
+    function handleSalesFile(file) {
+      readFileWithEncodingDetection(file, function(csvText) {
+        Papa.parse(csvText, {
+          header: false,
+          skipEmptyLines: true,
+          complete: function(results) {
+            salesRawRows = results.data;
+            processSalesCSV(salesRawRows);
+            if (dealerRawRows) {
+              processDealerCSV(dealerRawRows);
+            }
+          }
+        });
+      });
+    }
+
+    function handleDealerFile(file) {
+      readFileWithEncodingDetection(file, function(csvText) {
+        Papa.parse(csvText, {
+          header: true,
+          skipEmptyLines: true,
+          complete: function(results) {
+            dealerRawRows = results.data;
+            processDealerCSV(dealerRawRows);
+          }
+        });
+      });
+    }
+
+    function processDealerCSV(rows) {
+      if (!rows || rows.length === 0) return;
+      matchedDealerList = [];
+      const projectOptionsMap = new Map();
+      const yearOptionsSet = new Set();
+      const monthOptionsSet = new Set();
+
+      rows.forEach(r => {
+        const projectSiteId = String(r['BP_PROJECT_SITE'] || r['bp_project_site'] || '').trim();
+        if (!projectSiteId) return;
+        if (validProjectIdsSet.size > 0 && !validProjectIdsSet.has(projectSiteId)) {
+          return;
+        }
+        const dealerName = (r['Dealer_Name'] || r['dealer_name'] || '-').trim();
+        const dealerId = (r['Dealer_ID'] || r['dealer_id'] || '-').trim();
+        const projectName = (r['BP_PROJECT_SITE_NAME'] || r['bp_project_site_name'] || '-').trim();
+        const prodGroupName = (r['PRD_GROUP_NAME'] || r['prd_group_name'] || r['MATERIALNAME'] || '-').trim();
+        const monthVal = String(r['Months'] || r['months'] || '-').trim();
+        const yearVal = String(r['Years'] || r['years'] || '-').trim();
+        const actualVal = parseNum(r['Actual'] || r['actual']);
+        const runitVal = (r['Actual_RUNIT'] || r['ACTUAL_RUNIT'] || r['actual_runit'] || r['RUNIT'] || r['runit'] || '-').trim();
+        const netAmountVal = parseNum(r['NetAmount'] || r['netamount']);
+        const periodStr = `${monthVal}/${yearVal}`;
+
+        matchedDealerList.push({
+          dealerId: dealerId,
+          dealerName: dealerName,
+          projectId: projectSiteId,
+          projectName: projectName,
+          productGroup: prodGroupName,
+          period: periodStr,
+          month: monthVal,
+          year: yearVal,
+          actual: actualVal,
+          runit: runitVal,
+          netAmount: netAmountVal
+        });
+
+        if (!projectOptionsMap.has(projectSiteId)) {
+          projectOptionsMap.set(projectSiteId, projectName);
+        }
+        if (yearVal !== '-' && yearVal !== '') {
+          yearOptionsSet.add(yearVal);
+        }
+        if (monthVal !== '-' && monthVal !== '') {
+          monthOptionsSet.add(monthVal);
+        }
+      });
+
+      const dealerProjectSelect = document.getElementById('dealerProjectFilter');
+      if (dealerProjectSelect) {
+        let projOptions = '<option value="all">โครงการทั้งหมด</option>';
+        Array.from(projectOptionsMap.entries())
+          .sort((a, b) => a[1].localeCompare(b[1], 'th'))
+          .forEach(([id, name]) => {
+            projOptions += `<option value="${escapeHtml(id)}">${escapeHtml(name)} (${escapeHtml(id)})</option>`;
+          });
+        dealerProjectSelect.innerHTML = projOptions;
+      }
+
+      const dealerYearSelect = document.getElementById('dealerYearFilter');
+      if (dealerYearSelect) {
+        let yrOptions = '<option value="all">ปีทั้งหมด</option>';
+        Array.from(yearOptionsSet).sort((a, b) => b.localeCompare(a, undefined, { numeric: true })).forEach(y => {
+          yrOptions += `<option value="${escapeHtml(y)}">${escapeHtml(y)}</option>`;
+        });
+        dealerYearSelect.innerHTML = yrOptions;
+      }
+
+      const thaiMonthNames = [
+        'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
+        'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'
+      ];
+      function getMonthOrder(m) {
+        const num = parseInt(m, 10);
+        if (!isNaN(num)) return num;
+        const idx = thaiMonthNames.findIndex(name => m.includes(name.replace('.', '')));
+        return idx !== -1 ? idx + 1 : 99;
+      }
+
+      const dealerMonthSelect = document.getElementById('dealerMonthFilter');
+      if (dealerMonthSelect) {
+        let moOptions = '<option value="all">เดือนทั้งหมด</option>';
+        Array.from(monthOptionsSet).sort((a, b) => getMonthOrder(a) - getMonthOrder(b)).forEach(m => {
+          const mNum = parseInt(m, 10);
+          const label = (!isNaN(mNum) && mNum >= 1 && mNum <= 12) ? `${thaiMonthNames[mNum - 1]} (${m})` : m;
+          moOptions += `<option value="${escapeHtml(m)}">${escapeHtml(label)}</option>`;
+        });
+        dealerMonthSelect.innerHTML = moOptions;
+      }
+
+      document.getElementById('dealerMatchSummary').textContent = `จับคู่ตรงกับไฟล์ยอดขายได้ ${matchedDealerList.length.toLocaleString()} แถว (ตัดรายการที่ไม่ตรงออกเรียบร้อยแล้ว)`;
+      renderDealerTable();
+      initDealerComparisonControls();
+    }
+
+    function renderDealerTable() {
+      const tbody = document.getElementById('dealerTableBody');
+      const searchTerm = (document.getElementById('dealerSearchInput')?.value || '').toLowerCase().trim();
+      const selectedProject = document.getElementById('dealerProjectFilter')?.value || 'all';
+      const selectedYear = document.getElementById('dealerYearFilter')?.value || 'all';
+      const selectedMonth = document.getElementById('dealerMonthFilter')?.value || 'all';
+
+      const filtered = matchedDealerList.filter(item => {
+        if (selectedProject !== 'all' && item.projectId !== selectedProject) return false;
+        if (selectedYear !== 'all' && item.year !== selectedYear) return false;
+        if (selectedMonth !== 'all' && item.month !== selectedMonth) return false;
+        if (searchTerm) {
+          const match = item.dealerName.toLowerCase().includes(searchTerm) ||
+                        item.dealerId.toLowerCase().includes(searchTerm) ||
+                        item.projectId.toLowerCase().includes(searchTerm) ||
+                        item.projectName.toLowerCase().includes(searchTerm) ||
+                        item.productGroup.toLowerCase().includes(searchTerm);
+          if (!match) return false;
+        }
+        return true;
+      });
+
+      let sumActual = 0;
+      let sumNetAmount = 0;
+      filtered.forEach(it => {
+        sumActual += it.actual;
+        sumNetAmount += it.netAmount;
+      });
+
+      document.getElementById('dealerMatchedCount').textContent = `${filtered.length.toLocaleString()} รายการ`;
+      document.getElementById('dealerTotalActualQty').textContent = formatNumber(sumActual);
+      document.getElementById('dealerTotalNetAmount').textContent = `${formatNumber(sumNetAmount)} บาท`;
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" class="py-6 text-center text-slate-400">ไม่พบรายการยอดขาย Dealer ตามเงื่อนไขและตัวกรองที่เลือก</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(item => `
+        <tr class="hover:bg-emerald-50/40 transition-colors">
+          <td class="py-2.5 px-3">
+            <div class="font-semibold text-slate-800">${escapeHtml(item.dealerName)}</div>
+            <div class="text-[10px] text-slate-400 font-mono">${escapeHtml(item.dealerId)}</div>
+          </td>
+          <td class="py-2.5 px-3 font-mono font-bold text-indigo-700">${escapeHtml(item.projectId)}</td>
+          <td class="py-2.5 px-3 font-medium text-slate-800 max-w-xs truncate" title="${escapeHtml(item.projectName)}">${escapeHtml(item.projectName)}</td>
+          <td class="py-2.5 px-3 text-slate-600">${escapeHtml(item.productGroup)}</td>
+          <td class="py-2.5 px-2 text-center font-mono text-slate-500">${escapeHtml(item.period)}</td>
+          <td class="py-2.5 px-3 text-right font-mono text-slate-700 font-medium">${formatNumber(item.actual)}</td>
+          <td class="py-2.5 px-3 text-center font-mono text-slate-500 bg-slate-50/60 rounded">${escapeHtml(item.runit)}</td>
+          <td class="py-2.5 px-3 text-right font-mono font-bold text-emerald-600">${formatNumber(item.netAmount)}</td>
+        </tr>
+      `).join('');
+    }
+
+    document.getElementById('dealerSearchInput')?.addEventListener('input', renderDealerTable);
+    document.getElementById('dealerProjectFilter')?.addEventListener('change', renderDealerTable);
+    document.getElementById('dealerYearFilter')?.addEventListener('change', renderDealerTable);
+    document.getElementById('dealerMonthFilter')?.addEventListener('change', renderDealerTable);
+
+    function exportDealerToExcel() {
+      const selectedProject = document.getElementById('dealerProjectFilter')?.value || 'all';
+      const selectedYear = document.getElementById('dealerYearFilter')?.value || 'all';
+      const selectedMonth = document.getElementById('dealerMonthFilter')?.value || 'all';
+      const searchTerm = (document.getElementById('dealerSearchInput')?.value || '').toLowerCase().trim();
+
+      const filtered = matchedDealerList.filter(item => {
+        if (selectedProject !== 'all' && item.projectId !== selectedProject) return false;
+        if (selectedYear !== 'all' && item.year !== selectedYear) return false;
+        if (selectedMonth !== 'all' && item.month !== selectedMonth) return false;
+        if (searchTerm) {
+          const match = item.dealerName.toLowerCase().includes(searchTerm) ||
+                        item.dealerId.toLowerCase().includes(searchTerm) ||
+                        item.projectId.toLowerCase().includes(searchTerm) ||
+                        item.projectName.toLowerCase().includes(searchTerm) ||
+                        item.productGroup.toLowerCase().includes(searchTerm);
+          if (!match) return false;
+        }
+        return true;
+      });
+
+      if (!filtered || filtered.length === 0) {
+        alert('ไม่มีข้อมูล Dealer ตามเงื่อนไขสำหรับ Export');
+        return;
+      }
+
+      const data = filtered.map(item => ({
+        "Dealer ID": item.dealerId,
+        "Dealer Name": item.dealerName,
+        "BP_PROJECT_SITE (ตรงกับไฟล์แรก)": item.projectId,
+        "ชื่อโครงการ": item.projectName,
+        "กลุ่มสินค้า": item.productGroup,
+        "งวด (เดือน/ปี)": item.period,
+        "ปริมาณขายจริง (Actual)": item.actual,
+        "หน่วย (Actual_RUNIT)": item.runit,
+        "ยอดขายสุทธิ (NetAmount บาท)": item.netAmount
+      }));
+      downloadExcel(data, 'Dealer_Actual_Sales_Matched_Only', 'Dealer_Sales');
+    }
+
+    // --- Dealer Comparison Multi-select & Charts Logic ---
+    function initDealerComparisonControls() {
+      if (selectedDealerCompProjects.size === 0) {
+        selectedDealerCompProjects = new Set(allProjectListGlobal.map(p => p.key));
+      }
+      if (selectedDealerCompProducts.size === 0) {
+        selectedDealerCompProducts = new Set(allForecastProductGroups);
+      }
+      renderDealerCompProjectCheckboxes();
+      renderDealerCompProductCheckboxes();
+      updateDealerComparisonCharts();
+    }
+
+    function renderDealerCompProjectCheckboxes() {
+      const search = (dealerCompProjectSearchInput.value || '').toLowerCase().trim();
+      const filtered = allProjectListGlobal.filter(p => p.name.toLowerCase().includes(search) || (p.id && p.id.toLowerCase().includes(search)));
+
+      if (filtered.length === 0) {
+        dealerCompProjectCheckboxList.innerHTML = `<div class="text-slate-400 py-1 text-center">ไม่พบโครงการ</div>`;
+        return;
+      }
+
+      dealerCompProjectCheckboxList.innerHTML = filtered.map(p => {
+        const isChecked = selectedDealerCompProjects.has(p.key);
+        const jsKey = escapeJsString(p.key);
+        return `
+          <label class="flex items-center gap-2 hover:bg-slate-50 p-1 rounded cursor-pointer transition-colors">
+            <input type="checkbox" value="${escapeHtml(p.key)}" ${isChecked ? 'checked' : ''} onchange="toggleDealerCompProject('${jsKey}')"
+                   class="rounded text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5">
+            <div class="truncate flex-1">
+              <span class="font-medium text-slate-800">${escapeHtml(p.name)}</span>
+              <span class="text-[10px] text-slate-400 ml-1">(${escapeHtml(p.id || '-')})</span>
+            </div>
+          </label>
+        `;
+      }).join('');
+      updateDealerCompProjectDropdownLabel();
+    }
+
+    function toggleDealerCompProject(projKey) {
+      if (selectedDealerCompProjects.has(projKey)) {
+        selectedDealerCompProjects.delete(projKey);
+      } else {
+        selectedDealerCompProjects.add(projKey);
+      }
+      updateDealerCompProjectDropdownLabel();
+      updateDealerComparisonCharts();
+    }
+
+    function selectAllDealerCompProjects(shouldSelectAll) {
+      if (shouldSelectAll) {
+        selectedDealerCompProjects = new Set(allProjectListGlobal.map(p => p.key));
+      } else {
+        selectedDealerCompProjects.clear();
+      }
+      renderDealerCompProjectCheckboxes();
+      updateDealerComparisonCharts();
+    }
+
+    function updateDealerCompProjectDropdownLabel() {
+      const count = selectedDealerCompProjects.size;
+      const total = allProjectListGlobal.length;
+      if (count === total) {
+        dealerCompProjectDropdownLabel.textContent = 'เลือกโครงการทั้งหมด';
+      } else if (count === 0) {
+        dealerCompProjectDropdownLabel.textContent = 'ไม่ได้เลือกโครงการ (0)';
+      } else {
+        dealerCompProjectDropdownLabel.textContent = `เลือก ${count} จาก ${total} โครงการ`;
+      }
+    }
+
+    function renderDealerCompProductCheckboxes() {
+      if (!allForecastProductGroups || allForecastProductGroups.length === 0) {
+        dealerCompProductCheckboxList.innerHTML = `<div class="text-slate-400 py-1 text-center">ไม่พบกลุ่มสินค้า</div>`;
+        return;
+      }
+      dealerCompProductCheckboxList.innerHTML = allForecastProductGroups.map(p => {
+        const isChecked = selectedDealerCompProducts.has(p);
+        const jsVal = escapeJsString(p);
+        return `
+          <label class="flex items-center gap-2 hover:bg-slate-50 p-1 rounded cursor-pointer transition-colors">
+            <input type="checkbox" value="${escapeHtml(p)}" ${isChecked ? 'checked' : ''} onchange="toggleDealerCompProduct('${jsVal}')"
+                   class="rounded text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5">
+            <span class="truncate flex-1" title="${escapeHtml(p)}">${escapeHtml(p)}</span>
+          </label>
+        `;
+      }).join('');
+      updateDealerCompProductDropdownLabel();
+    }
+
+    function toggleDealerCompProduct(prodName) {
+      if (selectedDealerCompProducts.has(prodName)) {
+        selectedDealerCompProducts.delete(prodName);
+      } else {
+        selectedDealerCompProducts.add(prodName);
+      }
+      updateDealerCompProductDropdownLabel();
+      updateDealerComparisonCharts();
+    }
+
+    function selectAllDealerCompProducts(shouldSelectAll) {
+      if (shouldSelectAll) {
+        selectedDealerCompProducts = new Set(allForecastProductGroups);
+      } else {
+        selectedDealerCompProducts.clear();
+      }
+      renderDealerCompProductCheckboxes();
+      updateDealerComparisonCharts();
+    }
+
+    function updateDealerCompProductDropdownLabel() {
+      const count = selectedDealerCompProducts.size;
+      const total = allForecastProductGroups.length;
+      if (count === total) {
+        dealerCompProductDropdownLabel.textContent = 'เลือกกลุ่มสินค้าทั้งหมด';
+      } else if (count === 0) {
+        dealerCompProductDropdownLabel.textContent = 'ไม่ได้เลือกกลุ่มสินค้า (0)';
+      } else {
+        dealerCompProductDropdownLabel.textContent = `เลือก ${count} จาก ${total} สินค้า`;
+      }
+    }
+
+    function updateDealerComparisonCharts() {
+      if (!parsedDataRowsGlobal || parsedDataRowsGlobal.length === 0) return;
+      const unitSuffix = getUnitSuffix();
+
+      const projectRoppMap = {};
+      const productRoppMap = {};
+
+      parsedDataRowsGlobal.forEach(row => {
+        const projectCode = (row[0] || '').trim();
+        const projectName = (row[1] || row[2] || projectCode || 'ไม่ระบุชื่อโครงการ').trim();
+        const projectKey = projectCode || projectName;
+        const productGroup = (row[4] || 'อื่นๆ').trim();
+
+        if (!selectedDealerCompProjects.has(projectKey)) return;
+        if (!selectedDealerCompProducts.has(productGroup)) return;
+
+        const unitPrice = getUnitPrice(productGroup);
+        let rowRoppSum = 0;
+        allMonthHeadersGlobal.forEach(m => {
+          const rUnit = parseNum(row[m.roppCol]);
+          const rVal = displayMode === 'baht' ? (rUnit * unitPrice) : rUnit;
+          rowRoppSum += rVal;
+        });
+
+        if (!projectRoppMap[projectKey]) {
+          projectRoppMap[projectKey] = { name: projectName, code: projectCode, ropp: 0 };
+        }
+        projectRoppMap[projectKey].ropp += rowRoppSum;
+        productRoppMap[productGroup] = (productRoppMap[productGroup] || 0) + rowRoppSum;
+      });
+
+      const projectDealerActMap = {};
+      const productDealerActMap = {};
+
+      matchedDealerList.forEach(item => {
+        const projectKey = item.projectId;
+        const productGroup = item.productGroup;
+
+        if (!selectedDealerCompProjects.has(projectKey)) return;
+        if (!selectedDealerCompProducts.has(productGroup)) return;
+
+        const actVal = displayMode === 'baht' ? item.netAmount : item.actual;
+
+        projectDealerActMap[projectKey] = (projectDealerActMap[projectKey] || 0) + actVal;
+        productDealerActMap[productGroup] = (productDealerActMap[productGroup] || 0) + actVal;
+      });
+
+      const allCompProjectKeys = new Set([...Object.keys(projectRoppMap), ...Object.keys(projectDealerActMap)]);
+      const projectCompList = Array.from(allCompProjectKeys).map(key => {
+        const roppData = projectRoppMap[key] || { name: key, code: key, ropp: 0 };
+        const dealerAct = projectDealerActMap[key] || 0;
+        return {
+          key: key,
+          name: roppData.name || key,
+          code: roppData.code || key,
+          ropp: roppData.ropp,
+          dealerAct: dealerAct,
+          total: roppData.ropp + dealerAct
+        };
+      }).sort((a, b) => b.total - a.total).slice(0, 10);
+
+      const ctxProjComp = document.getElementById('dealerCompProjectChart').getContext('2d');
+      if (chartDealerCompProjectInstance) chartDealerCompProjectInstance.destroy();
+      chartDealerCompProjectInstance = new Chart(ctxProjComp, {
+        type: 'bar',
+        data: {
+          labels: projectCompList.map(p => p.name.length > 15 ? p.name.slice(0, 15) + '...' : p.name),
+          datasets: [
+            {
+              label: `โอกาส (Ropp - ${unitSuffix})`,
+              data: projectCompList.map(p => p.ropp),
+              backgroundColor: '#60a5fa',
+              borderRadius: 4
+            },
+            {
+              label: `ยอดขายจริง Dealer (Actual - ${unitSuffix})`,
+              data: projectCompList.map(p => p.dealerAct),
+              backgroundColor: '#059669',
+              borderRadius: 4
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'top', labels: { boxWidth: 12, font: { family: 'Prompt' } } },
+            tooltip: {
+              callbacks: {
+                title: (items) => projectCompList[items[0].dataIndex].name,
+                label: (context) => `${context.dataset.label}: ${formatNumber(context.raw)}${unitSuffix}`
+              }
+            }
+          },
+          scales: {
+            x: { stacked: false, ticks: { font: { family: 'Prompt', size: 10 } } },
+            y: { stacked: false, ticks: { font: { family: 'Prompt' }, callback: (v) => v.toLocaleString() } }
+          }
+        }
+      });
+
+      const allCompProductNames = new Set([...Object.keys(productRoppMap), ...Object.keys(productDealerActMap)]);
+      const productCompList = Array.from(allCompProductNames).map(prod => {
+        const ropp = productRoppMap[prod] || 0;
+        const dealerAct = productDealerActMap[prod] || 0;
+        return {
+          name: prod,
+          ropp: ropp,
+          dealerAct: dealerAct,
+          total: ropp + dealerAct
+        };
+      }).sort((a, b) => b.total - a.total).slice(0, 10);
+
+      const ctxProdComp = document.getElementById('dealerCompProductChart').getContext('2d');
+      if (chartDealerCompProductInstance) chartDealerCompProductInstance.destroy();
+      chartDealerCompProductInstance = new Chart(ctxProdComp, {
+        type: 'bar',
+        data: {
+          labels: productCompList.map(p => p.name),
+          datasets: [
+            {
+              label: `โอกาส (Ropp - ${unitSuffix})`,
+              data: productCompList.map(p => p.ropp),
+              backgroundColor: '#60a5fa',
+              borderRadius: 4
+            },
+            {
+              label: `ยอดขายจริง Dealer (Actual - ${unitSuffix})`,
+              data: productCompList.map(p => p.dealerAct),
+              backgroundColor: '#059669',
+              borderRadius: 4
+            }
+          ]
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'top', labels: { boxWidth: 12, font: { family: 'Prompt' } } },
+            tooltip: {
+              callbacks: {
+                label: (context) => `${context.dataset.label}:${formatNumber(context.raw)} ${unitSuffix}`
+              }
+            }
+          },
+          scales: {
+            x: { stacked: false, ticks: { font: { family: 'Prompt' }, callback: (v) => v.toLocaleString() } },
+            y: { stacked: false, ticks: { font: { family: 'Prompt', size: 10 } } }
+          }
+        }
+      });
+    }
+
+    function normalizeYear(yNum, isThaiMonth = false) {
+      if (yNum < 100) {
+        if (isThaiMonth || yNum >= 50) {
+          yNum = (2500 + yNum) - 543;
+        } else {
+          yNum = 2000 + yNum;
+        }
+      } else if (yNum > 2400) {
+        yNum -= 543;
+      }
+      return yNum;
+    }
+
+    function parseMonthYearDate(str) {
+      if (!str) return null;
+      const clean = str.trim();
+      const monthNames = {
+        'jan': 0, 'feb': 1, 'mar': 2, 'apr': 3, 'may': 4, 'jun': 5,
+        'jul': 6, 'aug': 7, 'sep': 8, 'oct': 9, 'nov': 10, 'dec': 11,
+        'ม.ค': 0, 'ก.พ': 1, 'มี.ค': 2, 'เม.ย': 3, 'พ.ค': 4, 'มิ.ย': 5,
+        'ก.ค': 6, 'ส.ค': 7, 'ก.ย': 8, 'ต.ค': 9, 'พ.ย': 10, 'ธ.ค': 11
+      };
+
+      const matchText = clean.match(/([a-zA-Z]+|ม\.ค|ก\.พ|มี\.ค|เม\.ย|พ\.ค|มิ\.ย|ก\.ค|ส\.ค|ก\.ย|ต\.ค|พ\.ย|ธ\.ค)[.\s\-_/]*(\d{2,4})/i);
+      if (matchText) {
+        let rawStr = matchText[1];
+        let mStr = rawStr.toLowerCase().slice(0, 3);
+        let yNum = parseInt(matchText[2], 10);
+        let isThai = /[\u0E00-\u0E7F]/.test(rawStr);
+        let mIdx = monthNames[mStr] !== undefined ? monthNames[mStr] : monthNames[rawStr];
+        if (mIdx !== undefined) {
+          yNum = normalizeYear(yNum, isThai);
+          return { year: yNum, month: mIdx, dateObj: new Date(yNum, mIdx, 1) };
+        }
+      }
+
+      const matchNum1 = clean.match(/(\d{4})[-\s/_](\d{1,2})/);
+      if (matchNum1) {
+        let yNum = normalizeYear(parseInt(matchNum1[1], 10));
+        let mIdx = parseInt(matchNum1[2], 10) - 1;
+        return { year: yNum, month: mIdx, dateObj: new Date(yNum, mIdx, 1) };
+      }
+
+      const matchNum2 = clean.match(/(\d{1,2})[-\s/_](\d{2,4})/);
+      if (matchNum2) {
+        let mIdx = parseInt(matchNum2[1], 10) - 1;
+        let yNum = normalizeYear(parseInt(matchNum2[2], 10));
+        return { year: yNum, month: mIdx, dateObj: new Date(yNum, mIdx, 1) };
+      }
+      return null;
+    }
+
+    function isDateOrMonthStr(str) {
+      return parseMonthYearDate(str) !== null;
+    }
+
+    function processSalesCSV(rows) {
+      if (!rows || rows.length < 2) return;
+      validProjectIdsSet.clear();
+
+      let row0 = rows[0] || [];
+      let row1 = rows[1] || [];
+      let row2 = rows[2] || [];
+      let dataStartRowIdx = 1;
+
+      // ตรวจสอบโครงสร้างหัวตารางอย่างแม่นยำ (ตรวจจับหัวข้อ Ropp/Act)
+      const isRoppAct = (val) => /^(ropp|act)$/i.test(String(val || '').trim());
+      let hasRoppActInRow2 = row2.some(isRoppAct);
+      let hasRoppActInRow1 = row1.some(isRoppAct);
+      let hasRoppActInRow0 = row0.some(isRoppAct);
+
+      let monthRow = row0;
+      let typeRow = row1;
+      if (hasRoppActInRow2) {
+        monthRow = row1;
+        typeRow = row2;
+        dataStartRowIdx = 3;
+      } else if (hasRoppActInRow1) {
+        monthRow = row0;
+        typeRow = row1;
+        dataStartRowIdx = 2;
+      } else if (hasRoppActInRow0) {
+        monthRow = row1;
+        typeRow = row0;
+        dataStartRowIdx = 2;
+      }
+
+      const maxCols = Math.max(monthRow.length, typeRow.length);
+      const monthHeaders = [];
+      let fallbackIndex = 0;
+      const today = new Date();
+      const currentYear = today.getFullYear();
+      const currentMonth = today.getMonth();
+
+      for (let col = 13; col < maxCols; col += 2) {
+        const roppColIdx = col;
+        const actColIdx = col + 1;
+
+        let detectedMonth = (monthRow[roppColIdx] || monthRow[actColIdx] || '').trim();
+        if (!detectedMonth || !isDateOrMonthStr(detectedMonth)) {
+          let alt = (typeRow[roppColIdx] || typeRow[actColIdx] || '').trim();
+          if (isDateOrMonthStr(alt)) {
+            detectedMonth = alt;
+          }
+        }
+        detectedMonth = detectedMonth.replace(/ropp|act/gi, '').trim();
+        const parsedDate = parseMonthYearDate(detectedMonth);
+
+        monthHeaders.push({
+          index: fallbackIndex,
+          monthYear: detectedMonth || `งวด ${fallbackIndex + 1}`,
+          parsedDate: parsedDate,
+          roppCol: roppColIdx,
+          actCol: actColIdx
+        });
+        fallbackIndex++;
+      }
+
+      allMonthHeadersGlobal = monthHeaders;
+
+      let futureMonthHeaders = monthHeaders.filter(m => {
+        if (!m.parsedDate) return false;
+        if (m.parsedDate.year > currentYear) return true;
+        if (m.parsedDate.year === currentYear && m.parsedDate.month >= currentMonth) return true;
+        return false;
+      });
+
+      if (futureMonthHeaders.length === 0) {
+        futureMonthHeaders = monthHeaders.slice(-4);
+      }
+      availableForecastMonths = futureMonthHeaders;
+
+      const dataRows = rows.slice(dataStartRowIdx);
+      parsedDataRowsGlobal = dataRows;
+
+      const prodGroupSet = new Set();
+      const projectsMapUnique = new Map();
+
+      dataRows.forEach(r => {
+        const projectCode = (r[0] || '').trim();
+        if (projectCode) {
+          validProjectIdsSet.add(projectCode);
+        }
+        const p = (r[4] || '').trim();
+        if (p) prodGroupSet.add(p);
+
+        const projectName = (r[1] || r[2] || projectCode || 'ไม่ระบุชื่อโครงการ').trim();
+        const projectKey = projectCode || projectName;
+        if (projectKey && !projectsMapUnique.has(projectKey)) {
+          projectsMapUnique.set(projectKey, {
+            id: projectCode,
+            name: projectName,
+            key: projectKey
+          });
+        }
+      });
+
+      allForecastProductGroups = Array.from(prodGroupSet).sort((a, b) => a.localeCompare(b, 'th'));
+      if (selectedForecastProducts.size === 0) selectedForecastProducts = new Set(allForecastProductGroups);
+      if (selectedAnalysisProducts.size === 0) selectedAnalysisProducts = new Set(allForecastProductGroups);
+
+      allProjectListGlobal = Array.from(projectsMapUnique.values()).sort((a, b) => a.name.localeCompare(b.name, 'th'));
+      if (selectedForecastProjects.size === 0) selectedForecastProjects = new Set(allProjectListGlobal.map(p => p.key));
+      if (selectedAnalysisProjects.size === 0) selectedAnalysisProjects = new Set(allProjectListGlobal.map(p => p.key));
+
+      // อัปเดต Dropdown โครงการในส่วน Weekly AI Site Dashboard
+      syncWeeklyProjectDropdown();
+
+      inactiveList = [];
+      missingPriceProducts.clear();
+      let grandTotalRopp = 0;
+      let grandTotalAct = 0;
+
+      dataRows.forEach(row => {
+        const projectCode = (row[0] || '').trim();
+        if (!projectCode && !row[1] && !row[2]) return;
+        const projectName = (row[1] || row[2] || projectCode || 'ไม่ระบุชื่อโครงการ').trim();
+        const productGroup = (row[4] || 'อื่นๆ').trim();
+
+        const unitPrice = getUnitPrice(productGroup);
+        if (unitPrice === 0) {
+          missingPriceProducts.add(productGroup);
+        }
+
+        let hasPastSales = false;
+        let lastActiveMonthYear = '-';
+        let lastActiveDateObj = null;
+        let lastActiveActVal = 0;
+        let totalPastAct = 0;
+        let pastMonthsCountWithSales = 0;
+
+        monthHeaders.forEach(m => {
+          const rUnit = parseNum(row[m.roppCol]);
+          const aUnit = parseNum(row[m.actCol]);
+
+          const rVal = displayMode === 'baht' ? (rUnit * unitPrice) : rUnit;
+          const aVal = displayMode === 'baht' ? (aUnit * unitPrice) : aUnit;
+
+          grandTotalRopp += rVal;
+          grandTotalAct += aVal;
+
+          let isNotFuture = true;
+          if (m.parsedDate) {
+            if (m.parsedDate.year > currentYear || (m.parsedDate.year === currentYear && m.parsedDate.month > currentMonth)) {
+              isNotFuture = false;
+            }
+          }
+
+          if (isNotFuture && aVal > 0) {
+            hasPastSales = true;
+            lastActiveMonthYear = m.monthYear;
+            lastActiveActVal = aVal;
+            totalPastAct += aVal;
+            pastMonthsCountWithSales++;
+            if (m.parsedDate) {
+              lastActiveDateObj = m.parsedDate;
+            }
+          }
+        });
+
+        if (hasPastSales) {
+          let inactiveMonths = 0;
+          if (lastActiveDateObj) {
+            inactiveMonths = (currentYear - lastActiveDateObj.year) * 12 + (currentMonth - lastActiveDateObj.month);
+          } else {
+            inactiveMonths = 2;
+          }
+
+          if (inactiveMonths >= 2) {
+            const avgPastAct = pastMonthsCountWithSales > 0 ? (totalPastAct / pastMonthsCountWithSales) : 0;
+            inactiveList.push({
+              projectName: projectName,
+              projectCode: projectCode,
+              productGroup: productGroup,
+              lastMonthYear: lastActiveMonthYear,
+              lastActiveDateObj: lastActiveDateObj,
+              lastActVal: lastActiveActVal,
+              avgPastAct: avgPastAct,
+              inactiveMonths: inactiveMonths,
+              totalPastAct: totalPastAct
+            });
+          }
+        }
+      });
+
+      const banner = document.getElementById('missingPriceBanner');
+      const missingList = document.getElementById('missingList');
+      if (missingPriceProducts.size > 0 && displayMode === 'baht') {
+        document.getElementById('missingCount').textContent = missingPriceProducts.size;
+        missingList.innerHTML = Array.from(missingPriceProducts).map(item => `
+          <span class="bg-amber-100 text-amber-900 border border-amber-300 text-[11px] font-medium px-2 py-0.5 rounded-md">
+            ${escapeHtml(item)}
+          </span>
+        `).join('');
+        banner.classList.remove('hidden');
+      } else {
+        banner.classList.add('hidden');
+      }
+
+      document.getElementById('dropZone').classList.add('hidden');
+      document.getElementById('dashboardSection').classList.remove('hidden');
+
+      document.getElementById('kpiTotalRopp').textContent = formatNumber(grandTotalRopp);
+      document.getElementById('kpiTotalAct').textContent = formatNumber(grandTotalAct);
+      const overallRate = grandTotalRopp > 0 ? ((grandTotalAct / grandTotalRopp) * 100).toFixed(1) : 0;
+      document.getElementById('kpiRealizeRate').textContent = `${overallRate}%`;
+
+      const totalInactivePastRev = inactiveList.reduce((acc, curr) => acc + curr.totalPastAct, 0);
+      document.getElementById('kpiInactiveCount').textContent = `${inactiveList.length} รายการ`;
+      document.getElementById('kpiInactiveRevenue').textContent = `ในอดีต: ${formatNumber(totalInactivePastRev)}${getUnitSuffix()}`;
+
+      renderInactiveTable();
+      initForecastControls();
+      initAnalysisDateRange();
+      initDealerComparisonControls();
+      updateUIUnitLabels();
+    }
+
+    function initAnalysisDateRange() {
+      if (!allMonthHeadersGlobal || allMonthHeadersGlobal.length === 0) return;
+      const opts = allMonthHeadersGlobal.map((m, idx) => `<option value="${idx}">${escapeHtml(m.monthYear)}</option>`).join('');
+      analysisStartSelect.innerHTML = opts;
+      analysisEndSelect.innerHTML = opts;
+
+      analysisStartSelect.value = "0";
+      analysisEndSelect.value = String(allMonthHeadersGlobal.length - 1);
+
+      renderAnalysisProjectCheckboxes();
+      renderAnalysisProductCheckboxes();
+      updateAnalysisByDateRange();
+    }
+
+    function handleAnalysisRangeChange(e) {
+      let startIdx = parseInt(analysisStartSelect.value, 10);
+      let endIdx = parseInt(analysisEndSelect.value, 10);
+      if (startIdx > endIdx) {
+        if (e.target.id === 'analysisStartSelect') {
+          endIdx = startIdx;
+          analysisEndSelect.value = String(endIdx);
+        } else {
+          startIdx = endIdx;
+          analysisStartSelect.value = String(startIdx);
+        }
+      }
+      updateAnalysisByDateRange();
+    }
+
+    function renderAnalysisProjectCheckboxes() {
+      const search = (analysisProjectSearchInput.value || '').toLowerCase().trim();
+      const filtered = allProjectListGlobal.filter(p => p.name.toLowerCase().includes(search) || (p.id && p.id.toLowerCase().includes(search)));
+
+      if (filtered.length === 0) {
+        analysisProjectCheckboxList.innerHTML = `<div class="text-slate-400 py-1 text-center">ไม่พบโครงการ</div>`;
+        return;
+      }
+
+      analysisProjectCheckboxList.innerHTML = filtered.map(p => {
+        const isChecked = selectedAnalysisProjects.has(p.key);
+        const jsKey = escapeJsString(p.key);
+        return `
+          <label class="flex items-center gap-2 hover:bg-slate-50 p-1 rounded cursor-pointer transition-colors">
+            <input type="checkbox" value="${escapeHtml(p.key)}" ${isChecked ? 'checked' : ''} onchange="toggleAnalysisProject('${jsKey}')"
+                   class="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5">
+            <div class="truncate flex-1">
+              <span class="font-medium text-slate-800">${escapeHtml(p.name)}</span>
+              <span class="text-[10px] text-slate-400 ml-1">(${escapeHtml(p.id || '-')})</span>
+            </div>
+          </label>
+        `;
+      }).join('');
+      updateAnalysisProjectDropdownLabel();
+    }
+
+    function toggleAnalysisProject(projKey) {
+      if (selectedAnalysisProjects.has(projKey)) {
+        selectedAnalysisProjects.delete(projKey);
+      } else {
+        selectedAnalysisProjects.add(projKey);
+      }
+      updateAnalysisProjectDropdownLabel();
+      updateAnalysisByDateRange();
+    }
+
+    function selectAllAnalysisProjects(shouldSelectAll) {
+      if (shouldSelectAll) {
+        selectedAnalysisProjects = new Set(allProjectListGlobal.map(p => p.key));
+      } else {
+        selectedAnalysisProjects.clear();
+      }
+      renderAnalysisProjectCheckboxes();
+      updateAnalysisByDateRange();
+    }
+
+    function updateAnalysisProjectDropdownLabel() {
+      const count = selectedAnalysisProjects.size;
+      const total = allProjectListGlobal.length;
+      if (count === total) {
+        analysisProjectDropdownLabel.textContent = 'เลือกโครงการทั้งหมด';
+      } else if (count === 0) {
+        analysisProjectDropdownLabel.textContent = 'ไม่ได้เลือกโครงการ (0)';
+      } else {
+        analysisProjectDropdownLabel.textContent = `เลือก ${count} จาก ${total} โครงการ`;
+      }
+    }
+
+    function renderAnalysisProductCheckboxes() {
+      if (!allForecastProductGroups || allForecastProductGroups.length === 0) {
+        analysisProductCheckboxList.innerHTML = `<div class="text-slate-400 py-1 text-center">ไม่พบกลุ่มสินค้า</div>`;
+        return;
+      }
+      analysisProductCheckboxList.innerHTML = allForecastProductGroups.map(p => {
+        const isChecked = selectedAnalysisProducts.has(p);
+        const jsVal = escapeJsString(p);
+        return `
+          <label class="flex items-center gap-2 hover:bg-slate-50 p-1 rounded cursor-pointer transition-colors">
+            <input type="checkbox" value="${escapeHtml(p)}" ${isChecked ? 'checked' : ''} onchange="toggleAnalysisProduct('${jsVal}')"
+                   class="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5">
+            <span class="truncate flex-1" title="${escapeHtml(p)}">${escapeHtml(p)}</span>
+          </label>
+        `;
+      }).join('');
+      updateAnalysisProductDropdownLabel();
+    }
+
+    function toggleAnalysisProduct(prodName) {
+      if (selectedAnalysisProducts.has(prodName)) {
+        selectedAnalysisProducts.delete(prodName);
+      } else {
+        selectedAnalysisProducts.add(prodName);
+      }
+      updateAnalysisProductDropdownLabel();
+      updateAnalysisByDateRange();
+    }
+
+    function selectAllAnalysisProducts(shouldSelectAll) {
+      if (shouldSelectAll) {
+        selectedAnalysisProducts = new Set(allForecastProductGroups);
+      } else {
+        selectedAnalysisProducts.clear();
+      }
+      renderAnalysisProductCheckboxes();
+      updateAnalysisByDateRange();
+    }
+
+    function updateAnalysisProductDropdownLabel() {
+      const count = selectedAnalysisProducts.size;
+      const total = allForecastProductGroups.length;
+      if (count === total) {
+        analysisProductDropdownLabel.textContent = 'เลือกกลุ่มสินค้าทั้งหมด';
+      } else if (count === 0) {
+        analysisProductDropdownLabel.textContent = 'ไม่ได้เลือกกลุ่มสินค้า (0)';
+      } else {
+        analysisProductDropdownLabel.textContent = `เลือก ${count} จาก ${total} สินค้า`;
+      }
+    }
+
+    function updateAnalysisByDateRange() {
+      const startIdx = parseInt(analysisStartSelect.value, 10);
+      const endIdx = parseInt(analysisEndSelect.value, 10);
+      const selectedMonths = allMonthHeadersGlobal.slice(startIdx, endIdx + 1);
+
+      const projectsMap = {};
+      const productGroupsMap = {};
+      const monthlyAggregates = selectedMonths.map(m => ({
+        label: m.monthYear,
+        ropp: 0,
+        act: 0
+      }));
+
+      parsedDataRowsGlobal.forEach(row => {
+        const projectCode = (row[0] || '').trim();
+        if (!projectCode && !row[1] && !row[2]) return;
+        const projectName = (row[1] || row[2] || projectCode || 'ไม่ระบุชื่อโครงการ').trim();
+        const projectKey = projectCode || projectName;
+
+        if (!selectedAnalysisProjects.has(projectKey)) return;
+
+        const productGroup = (row[4] || 'อื่นๆ').trim();
+        if (!selectedAnalysisProducts.has(productGroup)) return;
+
+        const unitPrice = getUnitPrice(productGroup);
+
+        if (!projectsMap[projectKey]) {
+          projectsMap[projectKey] = {
+            id: projectCode,
+            name: projectName,
+            totalRopp: 0,
+            totalAct: 0,
+            productsAct: {},
+            productsRopp: {},
+            productDetails: {}
+          };
+        }
+
+        let rowRoppSum = 0;
+        let rowActSum = 0;
+        let rowRoppUnitSum = 0;
+        let rowActUnitSum = 0;
+
+        selectedMonths.forEach((m, mIdx) => {
+          const rUnit = parseNum(row[m.roppCol]);
+          const aUnit = parseNum(row[m.actCol]);
+
+          rowRoppUnitSum += rUnit;
+          rowActUnitSum += aUnit;
+
+          const rVal = displayMode === 'baht' ? (rUnit * unitPrice) : rUnit;
+          const aVal = displayMode === 'baht' ? (aUnit * unitPrice) : aUnit;
+
+          rowRoppSum += rVal;
+          rowActSum += aVal;
+
+          monthlyAggregates[mIdx].ropp += rVal;
+          monthlyAggregates[mIdx].act += aVal;
+        });
+
+        projectsMap[projectKey].totalRopp += rowRoppSum;
+        projectsMap[projectKey].totalAct += rowActSum;
+
+        if (!projectsMap[projectKey].productDetails[productGroup]) {
+          projectsMap[projectKey].productDetails[productGroup] = {
+            productGroup: productGroup,
+            unitPrice: unitPrice,
+            roppUnit: 0,
+            actUnit: 0,
+            roppBaht: 0,
+            actBaht: 0
+          };
+        }
+
+        projectsMap[projectKey].productDetails[productGroup].roppUnit += rowRoppUnitSum;
+        projectsMap[projectKey].productDetails[productGroup].actUnit += rowActUnitSum;
+        projectsMap[projectKey].productDetails[productGroup].roppBaht += (rowRoppUnitSum * unitPrice);
+        projectsMap[projectKey].productDetails[productGroup].actBaht += (rowActUnitSum * unitPrice);
+
+        if (rowActSum > 0) {
+          projectsMap[projectKey].productsAct[productGroup] = (projectsMap[projectKey].productsAct[productGroup] || 0) + rowActSum;
+        }
+        if (rowRoppSum > 0) {
+          projectsMap[projectKey].productsRopp[productGroup] = (projectsMap[projectKey].productsRopp[productGroup] || 0) + rowRoppSum;
+        }
+
+        if (!productGroupsMap[productGroup]) {
+          productGroupsMap[productGroup] = { ropp: 0, act: 0, total: 0 };
+        }
+        productGroupsMap[productGroup].ropp += rowRoppSum;
+        productGroupsMap[productGroup].act += rowActSum;
+        productGroupsMap[productGroup].total += (rowRoppSum + rowActSum);
+      });
+
+      projectsMapGlobal = projectsMap;
+      const unitSuffix = getUnitSuffix();
+
+      projectList = Object.values(projectsMap).map(p => {
+        const rate = p.totalRopp > 0 ? (p.totalAct / p.totalRopp) * 100 : 0;
+        const boughtProducts = Object.keys(p.productsAct);
+        const oppProducts = Object.entries(p.productsRopp)
+          .sort((a, b) => b[1] - a[1])
+          .map(([name, val]) => `${name} (${formatNumber(val)}${unitSuffix})`);
+
+        return {
+          ...p,
+          rate: rate,
+          boughtProducts: boughtProducts,
+          topOppProducts: oppProducts.slice(0, 3)
+        };
+      });
+
+      crossSellProjectsList = projectList.filter(p => p.boughtProducts.length > 1);
+      document.getElementById('kpiCrossSellCount').textContent = crossSellProjectsList.length;
+
+      renderProjectTable();
+      renderCharts(projectList, productGroupsMap, monthlyAggregates);
+    }
+
+    function openCrossSellModal() {
+      renderCrossSellTable();
+      document.getElementById('crossSellModal').classList.remove('hidden');
+    }
+
+    function closeCrossSellModal() {
+      document.getElementById('crossSellModal').classList.add('hidden');
+    }
+
+    document.getElementById('crossSellModal').addEventListener('click', (e) => {
+      if (e.target.id === 'crossSellModal') closeCrossSellModal();
+    });
+
+    function renderCrossSellTable() {
+      const tbody = document.getElementById('crossSellTableBody');
+      const searchTerm = (document.getElementById('crossSellSearchInput')?.value || '').toLowerCase().trim();
+      const unitSuffix = getUnitSuffix();
+
+      let list = crossSellProjectsList.filter(p => {
+        const matchName = (p.name || '').toLowerCase().includes(searchTerm) || (p.id || '').toLowerCase().includes(searchTerm);
+        const matchProduct = p.boughtProducts.some(b => b.toLowerCase().includes(searchTerm));
+        return matchName || matchProduct;
+      });
+
+      document.getElementById('crossSellModalCount').textContent = `${list.length} จาก ${crossSellProjectsList.length} โครงการ`;
+
+      if (list.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="4" class="py-6 text-center text-slate-400">ไม่พบโครงการที่มียอดซื้อจริงมากกว่า 1 กลุ่มสินค้าตามเงื่อนไข</td></tr>`;
+        return;
+      }
+
+      list.sort((a, b) => b.boughtProducts.length - a.boughtProducts.length || b.totalAct - a.totalAct);
+
+      tbody.innerHTML = list.map(p => {
+        const projectKey = p.id || p.name;
+        const jsKey = escapeJsString(projectKey);
+        return `
+          <tr class="hover:bg-amber-50/40 transition-colors">
+            <td class="py-3 px-4">
+              <button onclick="closeCrossSellModal(); openProjectModal('${jsKey}')" class="text-left group focus:outline-none">
+                <div class="font-semibold text-indigo-600 group-hover:text-indigo-800 group-hover:underline flex items-center gap-1">
+                  <span>${escapeHtml(p.name)}</span>
+                  <svg class="w-3.5 h-3.5 text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                </div>
+                <div class="text-[10px] text-slate-400 font-mono">${escapeHtml(p.id || '-')}</div>
+              </button>
+            </td>
+            <td class="py-3 px-3 text-center">
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
+                ${p.boughtProducts.length} สินค้า
+              </span>
+            </td>
+            <td class="py-3 px-4">
+              <div class="flex flex-wrap gap-1">
+                ${p.boughtProducts.map(b => {
+                  const val = p.productsAct[b] || 0;
+                  return `<span class="bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded text-[11px] font-medium" title="${formatNumber(val)} ${unitSuffix}">
+                    ${escapeHtml(b)} <span class="font-bold text-emerald-600">(${formatNumber(val)})</span>
+                  </span>`;
+                }).join('')}
+              </div>
+            </td>
+            <td class="py-3 px-4 text-right font-bold text-emerald-600 whitespace-nowrap">
+              ${formatNumber(p.totalAct)}${unitSuffix}
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    document.getElementById('crossSellSearchInput')?.addEventListener('input', renderCrossSellTable);
+
+    function exportCrossSellToExcel() {
+      if (!crossSellProjectsList || crossSellProjectsList.length === 0) {
+        alert('ไม่มีข้อมูลสำหรับ Export');
+        return;
+      }
+      const unitSuffix = getUnitSuffix();
+      const data = crossSellProjectsList.map(p => ({
+        "รหัสโครงการ": p.id || '-',
+        "ชื่อโครงการ": p.name,
+        "จำนวนสินค้าที่ซื้อจริง": p.boughtProducts.length,
+        "รายการสินค้าที่ซื้อจริง (Actual)": p.boughtProducts.map(b => `${b} (${formatNumber(p.productsAct[b] || 0)})`).join(', '),
+        [`ยอดขายจริงรวม (${unitSuffix})`]: p.totalAct,
+        [`ยอดโอกาสรวม (${unitSuffix})`]: p.totalRopp
+      }));
+      downloadExcel(data, `Cross_Sell_Projects_${displayMode}`, 'CrossSell_Projects');
+    }
+
+    function initForecastControls() {
+      if (!availableForecastMonths || availableForecastMonths.length === 0) return;
+      const monthOptionsHtml = availableForecastMonths.map((m, idx) => `<option value="${idx}">${escapeHtml(m.monthYear)}</option>`).join('');
+
+      forecastStartSelect.innerHTML = monthOptionsHtml;
+      forecastEndSelect.innerHTML = monthOptionsHtml;
+      forecastProjectSingleMonthSelect.innerHTML = monthOptionsHtml;
+      matrixMonthSelect.innerHTML = monthOptionsHtml;
+
+      forecastStartSelect.value = "0";
+      const initialEndIdx = Math.min(availableForecastMonths.length - 1, 2);
+      forecastEndSelect.value = String(initialEndIdx);
+      forecastProjectSingleMonthSelect.value = "0";
+      matrixMonthSelect.value = "0";
+
+      renderForecastProductCheckboxes();
+      renderForecastProjectCheckboxes();
+      updateForecastProductChart();
+      updateForecastProjectChart();
+      updateForecastMatrix();
+    }
+
+    function renderForecastProductCheckboxes() {
+      if (!allForecastProductGroups || allForecastProductGroups.length === 0) {
+        forecastProductCheckboxList.innerHTML = `<div class="text-slate-400 py-1">ไม่พบกลุ่มสินค้า</div>`;
+        return;
+      }
+      forecastProductCheckboxList.innerHTML = allForecastProductGroups.map(p => {
+        const isChecked = selectedForecastProducts.has(p);
+        const jsVal = escapeJsString(p);
+        return `
+          <label class="flex items-center gap-2 hover:bg-slate-50 p-1 rounded cursor-pointer transition-colors">
+            <input type="checkbox" value="${escapeHtml(p)}" ${isChecked ? 'checked' : ''} onchange="toggleForecastProduct('${jsVal}')"
+                   class="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5">
+            <span class="truncate flex-1" title="${escapeHtml(p)}">${escapeHtml(p)}</span>
+          </label>
+        `;
+      }).join('');
+      updateForecastProductDropdownLabel();
+    }
+
+    function toggleForecastProduct(prodName) {
+      if (selectedForecastProducts.has(prodName)) {
+        selectedForecastProducts.delete(prodName);
+      } else {
+        selectedForecastProducts.add(prodName);
+      }
+      updateForecastProductDropdownLabel();
+      updateForecastProductChart();
+      updateForecastProjectChart();
+      updateForecastMatrix();
+    }
+
+    function selectAllForecastProducts(shouldSelectAll) {
+      if (shouldSelectAll) {
+        selectedForecastProducts = new Set(allForecastProductGroups);
+      } else {
+        selectedForecastProducts.clear();
+      }
+      renderForecastProductCheckboxes();
+      updateForecastProductChart();
+      updateForecastProjectChart();
+      updateForecastMatrix();
+    }
+
+    function updateForecastProductDropdownLabel() {
+      const count = selectedForecastProducts.size;
+      const total = allForecastProductGroups.length;
+      if (count === total) {
+        forecastProductDropdownLabel.textContent = 'เลือกกลุ่มสินค้าทั้งหมด';
+      } else if (count === 0) {
+        forecastProductDropdownLabel.textContent = 'ไม่ได้เลือกกลุ่มสินค้า (0)';
+      } else {
+        forecastProductDropdownLabel.textContent = `เลือก ${count} จาก ${total} สินค้า`;
+      }
+    }
+
+    function renderForecastProjectCheckboxes() {
+      const search = (forecastProjectSearchInput.value || '').toLowerCase().trim();
+      const filtered = allProjectListGlobal.filter(p => p.name.toLowerCase().includes(search) || (p.id && p.id.toLowerCase().includes(search)));
+
+      if (filtered.length === 0) {
+        forecastProjectCheckboxList.innerHTML = `<div class="text-slate-400 py-1 text-center">ไม่พบโครงการ</div>`;
+        return;
+      }
+
+      forecastProjectCheckboxList.innerHTML = filtered.map(p => {
+        const isChecked = selectedForecastProjects.has(p.key);
+        const jsKey = escapeJsString(p.key);
+        return `
+          <label class="flex items-center gap-2 hover:bg-slate-50 p-1 rounded cursor-pointer transition-colors">
+            <input type="checkbox" value="${escapeHtml(p.key)}" ${isChecked ? 'checked' : ''} onchange="toggleForecastProject('${jsKey}')"
+                   class="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5">
+            <div class="truncate flex-1">
+              <span class="font-medium text-slate-800">${escapeHtml(p.name)}</span>
+              <span class="text-[10px] text-slate-400 ml-1">(${escapeHtml(p.id || '-')})</span>
+            </div>
+          </label>
+        `;
+      }).join('');
+      updateForecastProjectDropdownLabel();
+    }
+
+    function toggleForecastProject(projKey) {
+      if (selectedForecastProjects.has(projKey)) {
+        selectedForecastProjects.delete(projKey);
+      } else {
+        selectedForecastProjects.add(projKey);
+      }
+      updateForecastProjectDropdownLabel();
+      updateForecastProductChart();
+      updateForecastProjectChart();
+      updateForecastMatrix();
+    }
+
+    function selectAllForecastProjects(shouldSelectAll) {
+      if (shouldSelectAll) {
+        selectedForecastProjects = new Set(allProjectListGlobal.map(p => p.key));
+      } else {
+        selectedForecastProjects.clear();
+      }
+      renderForecastProjectCheckboxes();
+      updateForecastProductChart();
+      updateForecastProjectChart();
+      updateForecastMatrix();
+    }
+
+    function updateForecastProjectDropdownLabel() {
+      const count = selectedForecastProjects.size;
+      const total = allProjectListGlobal.length;
+      if (count === total) {
+        forecastProjectDropdownLabel.textContent = 'เลือกโครงการทั้งหมด';
+      } else if (count === 0) {
+        forecastProjectDropdownLabel.textContent = 'ไม่ได้เลือกโครงการ (0)';
+      } else {
+        forecastProjectDropdownLabel.textContent = `เลือก ${count} จาก ${total} โครงการ`;
+      }
+    }
+
+    function handleForecastProductRangeChange(e) {
+      let startIdx = parseInt(forecastStartSelect.value, 10);
+      let endIdx = parseInt(forecastEndSelect.value, 10);
+      if (e.target.id === 'forecastStartSelect') {
+        if (endIdx < startIdx) endIdx = startIdx;
+        if (endIdx - startIdx >= 4) endIdx = startIdx + 3;
+      } else {
+        if (endIdx < startIdx) startIdx = endIdx;
+        if (endIdx - startIdx >= 4) startIdx = endIdx - 3;
+      }
+      forecastStartSelect.value = String(startIdx);
+      forecastEndSelect.value = String(endIdx);
+      updateForecastProductChart();
+    }
+
+    function updateForecastProductChart() {
+      const startIdx = parseInt(forecastStartSelect.value, 10);
+      const endIdx = parseInt(forecastEndSelect.value, 10);
+      const selectedMonths = availableForecastMonths.slice(startIdx, endIdx + 1);
+      const monthLabels = selectedMonths.map(m => m.monthYear);
+
+      const forecastProducts = {};
+
+      parsedDataRowsGlobal.forEach(row => {
+        const projectCode = (row[0] || '').trim();
+        const projectName = (row[1] || row[2] || projectCode || 'ไม่ระบุชื่อโครงการ').trim();
+        const projectKey = projectCode || projectName;
+        if (!selectedForecastProjects.has(projectKey)) return;
+
+        const productGroup = (row[4] || 'อื่นๆ').trim();
+        if (!selectedForecastProducts.has(productGroup)) return;
+
+        const unitPrice = getUnitPrice(productGroup);
+
+        if (!forecastProducts[productGroup]) {
+          forecastProducts[productGroup] = new Array(selectedMonths.length).fill(0);
+        }
+
+        selectedMonths.forEach((fm, fIdx) => {
+          const fUnit = parseNum(row[fm.roppCol]);
+          const fVal = displayMode === 'baht' ? (fUnit * unitPrice) : fUnit;
+          forecastProducts[productGroup][fIdx] += fVal;
+        });
+      });
+
+      const topForecastProducts = Object.entries(forecastProducts)
+        .map(([name, vals]) => ({ name, vals, total: vals.reduce((a, b) => a + b, 0) }))
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 8);
+
+      const unitSuffix = getUnitSuffix();
+      const productDatasets = topForecastProducts.map(p => ({
+        label: p.name,
+        data: p.vals,
+        backgroundColor: getProductColor(p.name),
+        borderRadius: 4
+      }));
+
+      const ctxForecastProd = document.getElementById('forecastProductChart').getContext('2d');
+      if (chartForecastProductInstance) chartForecastProductInstance.destroy();
+      chartForecastProductInstance = new Chart(ctxForecastProd, {
+        type: 'bar',
+        data: {
+          labels: monthLabels,
+          datasets: productDatasets
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 10, font: { family: 'Prompt', size: 10 } } },
+            tooltip: {
+              callbacks: {
+                label: (context) => `${context.dataset.label}:${formatNumber(context.raw)} ${unitSuffix}`
+              }
+            }
+          },
+          scales: {
+            x: { stacked: true, ticks: { font: { family: 'Prompt' } } },
+            y: { stacked: true, ticks: { font: { family: 'Prompt', size: 10 }, callback: (v) => v.toLocaleString() } }
+          }
+        }
+      });
+    }
+
+    function updateForecastProjectChart() {
+      const selectedMonthIdx = parseInt(forecastProjectSingleMonthSelect.value, 10);
+      const targetMonth = availableForecastMonths[selectedMonthIdx];
+      if (!targetMonth) return;
+
+      const projectTotals = {};
+      const projectProductMap = {};
+      const allProductGroups = new Set();
+
+      parsedDataRowsGlobal.forEach(row => {
+        const projectCode = (row[0] || '').trim();
+        const projectName = (row[1] || row[2] || projectCode || 'ไม่ระบุชื่อโครงการ').trim();
+        const projectKey = projectCode || projectName;
+        if (!selectedForecastProjects.has(projectKey)) return;
+
+        const productGroup = (row[4] || 'อื่นๆ').trim();
+        if (!selectedForecastProducts.has(productGroup)) return;
+
+        const unitPrice = getUnitPrice(productGroup);
+        const fUnit = parseNum(row[targetMonth.roppCol]);
+        const fVal = displayMode === 'baht' ? (fUnit * unitPrice) : fUnit;
+
+        if (fVal > 0) {
+          projectTotals[projectName] = (projectTotals[projectName] || 0) + fVal;
+          if (!projectProductMap[projectName]) projectProductMap[projectName] = {};
+          projectProductMap[projectName][productGroup] = (projectProductMap[projectName][productGroup] || 0) + fVal;
+          allProductGroups.add(productGroup);
+        }
+      });
+
+      const topProjects = Object.entries(projectTotals)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 8)
+        .map(entry => entry[0]);
+
+      const unitSuffix = getUnitSuffix();
+      const productList = Array.from(allProductGroups);
+      const datasets = productList.map(prod => {
+        return {
+          label: prod,
+          data: topProjects.map(proj => (projectProductMap[proj] && projectProductMap[proj][prod]) || 0),
+          backgroundColor: getProductColor(prod),
+          borderRadius: 2
+        };
+      }).filter(ds => ds.data.some(val => val > 0));
+
+      const ctxForecastProj = document.getElementById('forecastProjectChart').getContext('2d');
+      if (chartForecastProjectInstance) chartForecastProjectInstance.destroy();
+      chartForecastProjectInstance = new Chart(ctxForecastProj, {
+        type: 'bar',
+        data: {
+          labels: topProjects.map(p => p.length > 15 ? p.slice(0, 15) + '...' : p),
+          datasets: datasets
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 10, font: { family: 'Prompt', size: 9 } } },
+            tooltip: {
+              callbacks: {
+                title: (items) => topProjects[items[0].dataIndex],
+                label: (context) => `${context.dataset.label}: ${formatNumber(context.raw)}${unitSuffix}`
+              }
+            }
+          },
+          scales: {
+            x: { stacked: true, ticks: { font: { family: 'Prompt', size: 10 } } },
+            y: { stacked: true, ticks: { font: { family: 'Prompt', size: 10 }, callback: (v) => v.toLocaleString() } }
+          }
+        }
+      });
+    }
+
+    function updateForecastMatrix() {
+      const selectedMonthIdx = parseInt(matrixMonthSelect.value, 10);
+      const targetMonth = availableForecastMonths[selectedMonthIdx];
+      if (!targetMonth) return;
+
+      const matrix = {};
+      const projectTotals = {};
+      const productTotals = {};
+      const projectMeta = {};
+      let grandTotal = 0;
+
+      parsedDataRowsGlobal.forEach(row => {
+        const projectCode = (row[0] || '').trim();
+        const projectName = (row[1] || row[2] || projectCode || 'ไม่ระบุชื่อโครงการ').trim();
+        const projectKey = projectCode || projectName;
+        if (!selectedForecastProjects.has(projectKey)) return;
+
+        const productGroup = (row[4] || 'อื่นๆ').trim();
+        if (!selectedForecastProducts.has(productGroup)) return;
+
+        const unitPrice = getUnitPrice(productGroup);
+        const fUnit = parseNum(row[targetMonth.roppCol]);
+        const fVal = displayMode === 'baht' ? (fUnit * unitPrice) : fUnit;
+
+        if (!matrix[projectName]) {
+          matrix[projectName] = {};
+          projectTotals[projectName] = 0;
+          projectMeta[projectName] = projectCode;
+        }
+
+        if (fVal > 0) {
+          matrix[projectName][productGroup] = (matrix[projectName][productGroup] || 0) + fVal;
+          projectTotals[projectName] += fVal;
+          productTotals[productGroup] = (productTotals[productGroup] || 0) + fVal;
+          grandTotal += fVal;
+        }
+      });
+
+      const activeProducts = Object.entries(productTotals)
+        .sort((a, b) => b[1] - a[1])
+        .map(e => e[0]);
+
+      const activeProjects = Object.entries(projectTotals)
+        .filter(e => e[1] > 0)
+        .sort((a, b) => b[1] - a[1])
+        .map(e => ({ name: e[0], code: projectMeta[e[0]], total: e[1] }));
+
+      currentMatrixData = {
+        monthName: targetMonth.monthYear,
+        projects: activeProjects,
+        products: activeProducts,
+        matrix: matrix,
+        projectTotals: projectTotals,
+        productTotals: productTotals,
+        grandTotal: grandTotal
+      };
+
+      renderForecastMatrixTable();
+    }
+
+    function renderForecastMatrixTable() {
+      const thead = document.getElementById('matrixTableHead');
+      const tbody = document.getElementById('matrixTableBody');
+      const searchTerm = (matrixSearchInput.value || '').toLowerCase().trim();
+
+      const { projects, products, matrix, productTotals, grandTotal } = currentMatrixData;
+      const unitSuffix = getUnitSuffix();
+
+      if (!projects || projects.length === 0 || products.length === 0) {
+        thead.innerHTML = `<tr><th class="py-3 px-4">โครงการ / สินค้า</th></tr>`;
+        tbody.innerHTML = `<tr><td class="py-6 text-center text-slate-400">ไม่พบข้อมูล Forecast ตามโครงการและกลุ่มสินค้าที่เลือกในเดือนนี้</td></tr>`;
+        return;
+      }
+
+      const filteredProjects = projects.filter(p =>
+        p.name.toLowerCase().includes(searchTerm) || (p.code && p.code.toLowerCase().includes(searchTerm))
+      );
+
+      thead.innerHTML = `
+        <tr>
+          <th class="py-3 px-4 bg-slate-100 font-bold sticky left-0 z-20 border-r border-slate-200">ชื่อโครงการ / รหัส</th>
+          <th class="py-3 px-3 text-right bg-indigo-50 font-bold text-indigo-950 border-r border-slate-200">ยอดรวม (${unitSuffix})</th>${products.map(prod => `<th class="py-3 px-3 text-right bg-slate-100 font-semibold whitespace-nowrap min-w-[120px]">${escapeHtml(prod)}</th>`).join('')}
+        </tr>
+      `;
+
+      if (filteredProjects.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="${products.length + 2}" class="py-6 text-center text-slate-400">ไม่พบข้อมูลโครงการตามคำค้นหา</td></tr>`;
+        return;
+      }
+
+      let rowsHtml = filteredProjects.map(p => {
+        const rowCells = products.map(prod => {
+          const val = (matrix[p.name] && matrix[p.name][prod]) || 0;
+          return `<td class="py-2.5 px-3 text-right ${val > 0 ? 'font-medium text-slate-800' : 'text-slate-300'}">${val > 0 ? formatNumber(val) : '-'}</td>`;
+        }).join('');
+
+        return `
+          <tr class="hover:bg-indigo-50/30 transition-colors">
+            <td class="py-2.5 px-4 sticky left-0 bg-white hover:bg-indigo-50/30 font-medium text-slate-900 border-r border-slate-100">
+              <div>${escapeHtml(p.name)}</div>
+              <div class="text-[10px] text-slate-400 font-mono">${escapeHtml(p.code || '-')}</div>
+            </td>
+            <td class="py-2.5 px-3 text-right font-bold text-indigo-600 bg-indigo-50/20 border-r border-slate-100">
+              ${formatNumber(p.total)}
+            </td>
+            ${rowCells}
+          </tr>
+        `;
+      }).join('');
+
+      const footerCells = products.map(prod => {
+        const sumVal = productTotals[prod] || 0;
+        return `<td class="py-3 px-3 text-right font-bold text-slate-900">${formatNumber(sumVal)}</td>`;
+      }).join('');
+
+      const footerHtml = `
+        <tr class="bg-slate-100 font-bold border-t-2 border-slate-300">
+          <td class="py-3 px-4 sticky left-0 bg-slate-100 border-r border-slate-300 text-slate-900">รวมทั้งสิ้น</td>
+          <td class="py-3 px-3 text-right font-bold text-indigo-700 bg-indigo-100/50 border-r border-slate-300">${formatNumber(grandTotal)}</td>${footerCells}
+        </tr>
+      `;
+
+      tbody.innerHTML = rowsHtml + footerHtml;
+    }
+
+    function exportForecastMatrixToExcel() {
+      const { monthName, projects, products, matrix } = currentMatrixData;
+      if (!projects || projects.length === 0) {
+        alert('ไม่มีข้อมูลสำหรับ Export');
+        return;
+      }
+      const unitSuffix = getUnitSuffix();
+      const excelData = projects.map(p => {
+        const row = {
+          "รหัสโครงการ": p.code || '-',
+          "ชื่อโครงการ": p.name,
+          [`ยอดรวมเดือนนี้ (${unitSuffix})`]: p.total
+        };
+        products.forEach(prod => {
+          row[prod] = (matrix[p.name] && matrix[p.name][prod]) || 0;
+        });
+        return row;
+      });
+      downloadExcel(excelData, `Forecast_Matrix_${monthName || 'Month'}_${displayMode}`, 'Matrix');
+    }
+
+    function openProjectModal(projectKey) {
+      currentModalProjectKey = projectKey;
+      const p = projectsMapGlobal[projectKey];
+      if (!p) return;
+
+      const unitSuffix = getUnitSuffix();
+      document.getElementById('modalProjectId').textContent = p.id || 'ไม่มีรหัส';
+      document.getElementById('modalProjectName').textContent = p.name;
+      document.getElementById('modalTotalRopp').textContent = `${formatNumber(p.totalRopp)} ${unitSuffix}`;
+      document.getElementById('modalTotalAct').textContent = `${formatNumber(p.totalAct)} ${unitSuffix}`;
+
+      const rate = p.totalRopp > 0 ? ((p.totalAct / p.totalRopp) * 100).toFixed(1) : 0;
+      document.getElementById('modalRealizeRate').textContent = `${rate}%`;
+
+      const tbody = document.getElementById('modalProductTableBody');
+      const details = Object.values(p.productDetails || {});
+      details.sort((a, b) => b.actBaht - a.actBaht || b.roppBaht - a.roppBaht);
+
+      if (details.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="py-6 text-center text-slate-400">ไม่พบรายการสินค้า</td></tr>`;
+      } else {
+        tbody.innerHTML = details.map(item => {
+          let statusBadge = '';
+          if (item.actBaht > 0 && item.roppBaht > 0) {
+            statusBadge = '<span class="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-200 font-semibold text-[10px]">ซื้อแล้ว + มี Opp เพิ่ม</span>';
+          } else if (item.actBaht > 0) {
+            statusBadge = '<span class="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full border border-emerald-200 font-semibold text-[10px]">ซื้อแล้ว</span>';
+          } else if (item.roppBaht > 0) {
+            statusBadge = '<span class="bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-200 font-semibold text-[10px]">เป้าหมาย Cross-sell</span>';
+          } else {
+            statusBadge = '<span class="text-slate-400 text-[10px]">-</span>';
+          }
+
+          return `
+            <tr class="hover:bg-slate-50 transition-colors">
+              <td class="py-3 px-4 font-medium text-slate-800">${escapeHtml(item.productGroup)}</td>
+              <td class="py-3 px-3 text-right text-slate-600">${formatNumber(item.unitPrice)}</td>
+              <td class="py-3 px-3 text-right text-blue-600 font-mono">${formatNumber(item.roppUnit)}</td>
+              <td class="py-3 px-3 text-right text-emerald-600 font-mono font-medium">${formatNumber(item.actUnit)}</td>
+              <td class="py-3 px-4 text-right font-medium text-blue-700">${formatNumber(item.roppBaht)}</td>
+              <td class="py-3 px-4 text-right font-bold text-emerald-600">${formatNumber(item.actBaht)}</td>
+              <td class="py-3 px-4 text-center">${statusBadge}</td>
+            </tr>
+          `;
+        }).join('');
+      }
+
+      document.getElementById('projectModal').classList.remove('hidden');
+    }
+
+    function closeModal() {
+      document.getElementById('projectModal').classList.add('hidden');
+      currentModalProjectKey = null;
+    }
+
+    document.getElementById('projectModal').addEventListener('click', (e) => {
+      if (e.target.id === 'projectModal') closeModal();
+    });
+
+    function sortInactive(column) {
+      if (currentInactiveSort.column === column) {
+        currentInactiveSort.order = currentInactiveSort.order === 'asc' ? 'desc' : 'asc';
+      } else {
+        currentInactiveSort.column = column;
+        currentInactiveSort.order = 'desc';
+      }
+
+      ['projectName', 'productGroup', 'lastMonthYear', 'lastActVal', 'avgPastAct', 'inactiveMonths'].forEach(col => {
+        const el = document.getElementById('sort-inactive-' + col);
+        if (el) el.textContent = '⇅';
+      });
+
+      const activeEl = document.getElementById('sort-inactive-' + column);
+      if (activeEl) activeEl.textContent = currentInactiveSort.order === 'asc' ? '▲' : '▼';
+
+      renderInactiveTable();
+    }
+
+    function renderInactiveTable() {
+      const tbody = document.getElementById('inactiveTableBody');
+      const searchTerm = (document.getElementById('inactiveSearchInput').value || '').toLowerCase();
+      const filterMonth = document.getElementById('inactiveMonthFilter').value;
+
+      let filtered = inactiveList.filter(item => {
+        const matchSearch = item.projectName.toLowerCase().includes(searchTerm) ||
+                            item.projectCode.toLowerCase().includes(searchTerm) ||
+                            item.productGroup.toLowerCase().includes(searchTerm);
+        if (!matchSearch) return false;
+        if (filterMonth === '2') return item.inactiveMonths === 2;
+        if (filterMonth === '3+') return item.inactiveMonths >= 3;
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="py-6
