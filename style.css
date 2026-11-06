@@ -1,0 +1,143 @@
+/* Google Fonts Import */
+@import url('https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap');
+
+/* Global Styles */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Prompt', sans-serif;
+  background-color: #f8fafc;
+  color: #1e293b;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom Scrollbar สำหรับตารางและกล่องแสดงผล */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Dropzone Hover & Active States */
+.dropzone-active {
+  border-color: #6366f1 !important;
+  background-color: rgba(238, 242, 255, 0.6) !important;
+}
+
+.dropzone-sky-active {
+  border-color: #0284c7 !important;
+  background-color: rgba(240, 249, 255, 0.8) !important;
+}
+
+/* Modal Backdrop Blur */
+.modal-backdrop {
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  transition: opacity 0.2s ease-in-out;
+}
+
+/* AI Weekly Card Badges & ระดับความเสี่ยง */
+.risk-badge-low {
+  background-color: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+
+.risk-badge-medium {
+  background-color: #fffbeb;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+
+.risk-badge-high {
+  background-color: #fff1f2;
+  color: #be123c;
+  border: 1px solid #fecdd3;
+}
+
+/* Image Thumbnail Preview ใน Site Visit Modal */
+.thumbnail-preview {
+  position: relative;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  aspect-ratio: 1 / 1;
+  background-color: #f1f5f9;
+}
+
+.thumbnail-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.2s ease;
+}
+
+.thumbnail-preview img:hover {
+  transform: scale(1.05);
+}
+
+.thumbnail-preview .remove-btn {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  background: rgba(15, 23, 42, 0.75);
+  color: white;
+  border-radius: 9999px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s ease-in-out;
+}
+
+.thumbnail-preview .remove-btn:hover {
+  background: #ef4444;
+}
+
+/* กล่องแสดงรูปถ่ายหน้างานขนาดใหญ่ (Enlarged Card Photo) */
+.site-card-large-image {
+  max-height: 240px;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  position: relative;
+}
+
+.site-card-large-image img {
+  width: 100%;
+  height: 220px;
+  object-fit: cover;
+  transition: transform 0.25s ease-in-out;
+}
+
+.site-card-large-image:hover img {
+  transform: scale(1.03);
+}
+
+/* Print Optimization */
+@media print {
+  header, #dropZone, button, select, input, .no-print {
+    display: none !important;
+  }
+  body {
+    background-color: white !important;
+  }
+}
