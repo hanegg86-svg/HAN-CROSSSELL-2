@@ -1,11 +1,10 @@
 /**
  * Service Worker - sw.js
  * จัดการ Caching ด้วยกลยุทธ์ Network-First สำหรับโหมด Offline PWA
- * อัปเดตเวอร์ชันแคช (v3) เพื่อรองรับฟังก์ชันรวม 2 รูปและการแก้ไขการ์ดหน้างาน
- * ข้ามการแคชสำหรับ Google Gemini API โดยตรง
+ * อัปเดตเวอร์ชันแคชเป็น v4 สำหรับระบบจัดการรูปภาพประจำกล่องและการสแกน AI
  */
 
-const CACHE_NAME = 'sales-analytics-v3';
+const CACHE_NAME = 'sales-analytics-v4';
 
 // รายการไฟล์ทั้งหมดในโปรเจกต์ที่ต้องแคชไว้ใช้งานออฟไลน์
 const STATIC_ASSETS = [
@@ -27,7 +26,6 @@ const STATIC_ASSETS = [
   'https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap'
 ];
 
-// ติดตั้ง Service Worker และพรีแคชไฟล์พื้นฐานทั้งหมด
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
@@ -37,7 +35,6 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// เคลียร์แคชเวอร์ชันเก่าทิ้งทันทีเมื่อโหลดเวอร์ชันใหม่
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
@@ -49,7 +46,6 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// กลยุทธ์ Network-First with Cache Fallback
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
@@ -58,7 +54,6 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // รองรับเฉพาะคำขอแบบ GET
   if (event.request.method !== 'GET') {
     return;
   }
@@ -66,7 +61,6 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(event.request)
       .then((networkResponse) => {
-        // หากดึงข้อมูลผ่านเครือข่ายสำเร็จ ให้อัปเดตข้อมูลลงแคช
         if (networkResponse && networkResponse.status === 200) {
           const responseToCache = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
@@ -76,12 +70,10 @@ self.addEventListener('fetch', (event) => {
         return networkResponse;
       })
       .catch(() => {
-        // หากออฟไลน์ ให้ดึงข้อมูลจากแคชที่บันทึกไว้
         return caches.match(event.request).then((cachedResponse) => {
           if (cachedResponse) {
             return cachedResponse;
           }
-          // สำหรับคำขอนำทางหน้าเว็บ (Navigation) ให้ Fallback ไปที่ index.html
           if (event.request.mode === 'navigate') {
             return caches.match('./index.html');
           }

@@ -1,7 +1,8 @@
 /**
  * Site Visit & Photo Management (site-visit.js)
  * จัดการรูปถ่ายหน้างาน (อัปโหลดตรงทันที ไม่ต้องผ่าน AI),
- * รวมภาพชุดวิเคราะห์ AI ด้วยโมเดล gemini-3.5-flash-lite เป็น 1 รายงานเดียว,
+ * รวมภาพชุดวิเคราะห์ AI ด้วยโมเดล gemini-3.5-flash-lite เป็น 1 รายงานเดียว (ไม่แสดงภาพสแกนเอกสาร),
+ * ระบบจัดการรูปภาพประจำแต่ละกล่อง (อัปโหลดรูปหน้างาน, เพิ่มรูป, ลบเฉพาะรูป),
  * ระบบแก้ไขข้อความรายงาน (Edit Modal), ลบรายการเฉพาะกล่อง, Lightbox และคัดลอกส่ง LINE
  */
 
@@ -62,7 +63,7 @@ function updateApiKeyStatusUI() {
 }
 
 // ==========================================
-// Direct Photo Upload (รวมชุดภาพลง 1 กล่อง ไม่ผ่าน AI)
+// Direct Photo Upload จากแถบด้านบน (ไม่ผ่าน AI)
 // ==========================================
 async function handleDirectSitePhotoUpload(files) {
   if (!files || files.length === 0) return;
@@ -123,8 +124,84 @@ async function handleDirectSitePhotoUpload(files) {
 }
 
 // ==========================================
+// การจัดการรูปภาพประจำแต่ละกล่อง (เพิ่ม / ลบรูป)
+// ==========================================
+
+/**
+ * เรียกหน้าต่างเลือกไฟล์เพื่ออัปโหลดรูปเข้ากล่องที่กำหนด
+ */
+function triggerBoxPhotoUpload(visitId) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.multiple = true;
+  input.onchange = (e) => {
+    if (e.target.files && e.target.files.length > 0) {
+      handleBoxPhotoUpload(visitId, e.target.files);
+    }
+  };
+  input.click();
+}
+
+/**
+ * บันทึกรูปภาพที่เลือกลงในการ์ดใบนั้นๆ
+ */
+async function handleBoxPhotoUpload(visitId, files) {
+  const item = siteVisitLogsGlobal.find(i => i.id === visitId);
+  if (!item) return;
+
+  if (!item.images) {
+    item.images = [];
+  }
+  if (item.imageData && item.images.length === 0) {
+    item.images.push({ base64Data: item.imageData, mimeType: item.mimeType || 'image/jpeg' });
+  }
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    if (file.type.startsWith('image/')) {
+      try {
+        const imgData = await fileToBase64(file);
+        item.images.push({ base64Data: imgData.base64Data, mimeType: imgData.mimeType });
+      } catch (err) {
+        console.error('Box photo upload error:', err);
+      }
+    }
+  }
+
+  if (item.images.length > 0) {
+    item.imageData = item.images[0].base64Data;
+    item.mimeType = item.images[0].mimeType;
+  }
+
+  await dbSave('site_visits', item);
+  await loadSiteVisitLogsFromDB();
+}
+
+/**
+ * ลบรูปภาพเฉพาะภาพที่เลือกออกจากกล่อง
+ */
+async function deleteSinglePhotoFromBox(visitId, photoIdx) {
+  if (!confirm('ต้องการลบรูปภาพนี้ออกจากกล่องรายงานใช่หรือไม่?')) return;
+  const item = siteVisitLogsGlobal.find(i => i.id === visitId);
+  if (!item || !item.images) return;
+
+  item.images.splice(photoIdx, 1);
+  if (item.images.length > 0) {
+    item.imageData = item.images[0].base64Data;
+    item.mimeType = item.images[0].mimeType;
+  } else {
+    item.imageData = '';
+    item.mimeType = '';
+  }
+
+  await dbSave('site_visits', item);
+  await loadSiteVisitLogsFromDB();
+}
+
+// ==========================================
 // AI Analysis Modal & Execution (gemini-3.5-flash-lite)
-// รวมภาพทั้งหมดใน Batch เดียวเป็น 1 รายงาน
+// สแกนข้อความหลายภาพรวมเป็น 1 กล่อง (ไม่เก็บรูปเอกสารที่สแกน)
 // ==========================================
 function openSiteVisitModal() {
   if (!geminiApiKey) {
@@ -206,7 +283,7 @@ function fileToBase64(file) {
 }
 
 /**
- * วิเคราะห์ภาพทั้งหมดพร้อมกันใน 1 คำขอ แล้วบันทึกเป็น 1 กล่องสรุป
+ * วิเคราะห์ภาพทั้งหมดพร้อมกันใน 1 คำขอ แล้วบันทึกเป็น 1 กล่องสรุป (ไม่เก็บรูปเอกสารสแกน)
  */
 async function processSiteVisitImagesWithAI() {
   if (!geminiApiKey) {
@@ -255,6 +332,7 @@ async function processSiteVisitImagesWithAI() {
       year: 'numeric'
     });
 
+    // สร้างกล่องรายงานสรุปข้อความ โดยกำหนดรูปภาพเป็นค่าว่าง (ไม่โชว์ภาพเอกสารที่สแกน)
     const siteLog = {
       projectId: aiResult.projectId || (targetProjectObj ? targetProjectObj.id : '') || 'Unknown',
       projectName: aiResult.projectName || (targetProjectObj ? targetProjectObj.name : 'ไม่ระบุชื่อโครงการ'),
@@ -265,9 +343,9 @@ async function processSiteVisitImagesWithAI() {
       issuesAndRisks: aiResult.issuesAndRisks || '-',
       nextWeekActions: aiResult.nextWeekActions || '-',
       riskLevel: aiResult.riskLevel || 'Low',
-      images: imgObjs.map(img => ({ base64Data: img.base64Data, mimeType: img.mimeType })),
-      imageData: imgObjs[0] ? imgObjs[0].base64Data : '',
-      mimeType: imgObjs[0] ? imgObjs[0].mimeType : 'image/jpeg',
+      images: [],
+      imageData: '',
+      mimeType: '',
       createdAt: new Date().toISOString()
     };
 
@@ -370,7 +448,7 @@ async function loadSiteVisitLogsFromDB() {
 }
 
 /**
- * ลบรายการการ์ดรายงานหน้างานเฉพาะกล่องที่เลือก
+ * ลบรายการการ์ดรายงานหน้างานทั้งกล่อง
  */
 async function deleteSingleSiteVisit(id) {
   if (!confirm('ต้องการลบรายการรายงานหน้างานนี้ใช่หรือไม่?')) return;
@@ -426,7 +504,7 @@ async function saveEditSiteVisit() {
 }
 
 /**
- * Render รายการรายงานหน้างาน รองรับรูปเดี่ยว / รูปคู่ขนาดใหญ่ พร้อมปุ่ม Edit
+ * Render รายการรายงานหน้างาน พร้อมปุ่มอัปโหลดรูปประจำกล่อง และปุ่มลบเฉพาะรูป
  */
 function renderWeeklySiteVisitDashboard() {
   const emptyState = document.getElementById('weeklyEmptyState');
@@ -474,22 +552,46 @@ function renderWeeklySiteVisitDashboard() {
         riskText = 'เฝ้าระวัง (Medium Risk)';
       }
 
-      // ดึงรูปภาพทั้งหมด (รองรับทั้ง images array และ imageData เดิม)
+      // ดึงรูปภาพหน้างานทั้งหมดของกล่องนี้
       const imagesList = (item.images && item.images.length > 0)
         ? item.images
         : (item.imageData ? [{ base64Data: item.imageData, mimeType: item.mimeType || 'image/jpeg' }] : []);
 
       let photoHtml = '';
-      if (imagesList.length > 0) {
-        const jsName = escapeJsString(item.projectName);
+      const jsName = escapeJsString(item.projectName);
+
+      if (imagesList.length === 0) {
+        // เมื่อยังไม่มีรูปหน้างานในกล่อง แสดงปุ่มให้อัปโหลดเพิ่มรูปได้ทันที
+        photoHtml = `
+          <div class="mt-3">
+            <div class="p-3.5 rounded-xl border border-dashed border-sky-300 hover:border-sky-500 bg-sky-50/30 hover:bg-sky-50/70 flex items-center justify-between cursor-pointer transition-all"
+                 onclick="triggerBoxPhotoUpload(${item.id})">
+              <div class="flex items-center gap-2">
+                <span class="text-xl">📷</span>
+                <div>
+                  <div class="text-xs font-semibold text-sky-900">ยังไม่มีรูปถ่ายหน้างานในกล่องนี้</div>
+                  <div class="text-[10px] text-slate-400">คลิกเพื่ออัปโหลดรูปภาพไซต์งาน (เพิ่มได้หลายรูป)</div>
+                </div>
+              </div>
+              <button type="button" class="text-xs bg-sky-600 hover:bg-sky-700 text-white font-semibold px-2.5 py-1 rounded-lg shadow-sm">
+                + เพิ่มรูป
+              </button>
+            </div>
+          </div>
+        `;
+      } else {
+        // แสดงรูปภาพแบบ Grid พร้อมปุ่มลบรูป (×) และปุ่มเพิ่มรูป
         const gridColsClass = imagesList.length === 1 ? 'grid-cols-1' : 'grid-cols-2';
         const imgHeightClass = imagesList.length === 1 ? 'h-52 sm:h-60' : 'h-36 sm:h-44';
 
         photoHtml = `
-          <div class="mt-3">
-            <div class="text-[11px] font-semibold text-slate-500 mb-1.5 flex items-center justify-between">
-              <span class="flex items-center gap-1">📸 ภาพถ่ายหน้างาน (${imagesList.length} รูป):</span>
-              <span class="text-[10px] text-slate-400 font-normal">คลิกเพื่อดูรูปใหญ่</span>
+          <div class="mt-3 space-y-2">
+            <div class="flex justify-between items-center text-[11px] font-semibold text-slate-600">
+              <span class="flex items-center gap-1">📸 รูปถ่ายหน้างาน (${imagesList.length} รูป):</span>
+              <button type="button" onclick="triggerBoxPhotoUpload(${item.id})"
+                      class="inline-flex items-center gap-1 text-[11px] text-sky-600 hover:text-sky-800 font-semibold bg-sky-50 hover:bg-sky-100 border border-sky-200 px-2 py-0.5 rounded-md transition-colors">
+                <span>➕</span> เพิ่มรูปในกล่องนี้
+              </button>
             </div>
             <div class="grid ${gridColsClass} gap-2">
               ${imagesList.map((imgObj, pIdx) => {
@@ -502,6 +604,13 @@ function renderWeeklySiteVisitDashboard() {
                     <div class="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1 text-white text-[11px] font-semibold backdrop-blur-[1px]">
                       <span>🔍 ซูมภาพ</span>
                     </div>
+                    <!-- ปุ่มลบเฉพาะรูปนี้ -->
+                    <button type="button"
+                            onclick="event.stopPropagation(); deleteSinglePhotoFromBox(${item.id}, ${pIdx})"
+                            title="ลบรูปนี้ออกจากกล่อง"
+                            class="absolute top-2 right-2 bg-rose-600/90 hover:bg-rose-700 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shadow-md transition-all z-10">
+                      ×
+                    </button>
                   </div>
                 `;
               }).join('')}
@@ -528,14 +637,14 @@ function renderWeeklySiteVisitDashboard() {
                 <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${riskBadgeClass} whitespace-nowrap">
                   ${riskText}
                 </span>
-                <button onclick="deleteSingleSiteVisit(${item.id})" title="ลบรายการนี้"
+                <button onclick="deleteSingleSiteVisit(${item.id})" title="ลบรายการนี้ทั้งกล่อง"
                         class="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                 </button>
               </div>
             </div>
 
-            <!-- แสดงภาพถ่าย -->
+            <!-- โซนรูปถ่ายหน้างานประจำกล่อง -->
             ${photoHtml}
 
             <!-- ข้อมูลสรุปความคืบหน้า -->
