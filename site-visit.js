@@ -3,7 +3,8 @@
  * จัดการรูปถ่ายหน้างาน (อัปโหลดตรงทันที ไม่ต้องผ่าน AI),
  * รวมภาพชุดวิเคราะห์ AI ด้วยโมเดล gemini-3.5-flash-lite เป็น 1 รายงานเดียว (ไม่แสดงภาพสแกนเอกสาร),
  * ระบบจัดการรูปภาพประจำแต่ละกล่อง (อัปโหลดรูปหน้างาน, เพิ่มรูป, ลบเฉพาะรูป),
- * ระบบแก้ไขข้อความรายงาน (Edit Modal), ลบรายการเฉพาะกล่อง, Lightbox และคัดลอกส่ง LINE
+ * ระบบแก้ไขข้อความรายงาน (Edit Modal), ลบรายการเฉพาะกล่อง, Lightbox,
+ * คัดลอกส่ง LINE และ Export ข้อมูลรายงานหน้างานออกเป็น Excel (.xlsx)
  */
 
 function openGeminiKeyModal() {
@@ -332,7 +333,6 @@ async function processSiteVisitImagesWithAI() {
       year: 'numeric'
     });
 
-    // สร้างกล่องรายงานสรุปข้อความ โดยกำหนดรูปภาพเป็นค่าว่าง (ไม่โชว์ภาพเอกสารที่สแกน)
     const siteLog = {
       projectId: aiResult.projectId || (targetProjectObj ? targetProjectObj.id : '') || 'Unknown',
       projectName: aiResult.projectName || (targetProjectObj ? targetProjectObj.name : 'ไม่ระบุชื่อโครงการ'),
@@ -501,6 +501,56 @@ async function saveEditSiteVisit() {
   await dbSave('site_visits', item);
   await loadSiteVisitLogsFromDB();
   closeEditSiteVisitModal();
+}
+
+/**
+ * ส่งออกรายงานประวัติการตรวจหน้างาน (Site Visit) เป็นไฟล์ Excel (.xlsx)
+ * โดยจะกรองข้อมูลตาม Master Project Filter ปัจจุบันอัตโนมัติ
+ */
+function exportSiteVisitsToExcel() {
+  if (!siteVisitLogsGlobal || siteVisitLogsGlobal.length === 0) {
+    alert('ไม่มีข้อมูลรายงานหน้างานสำหรับ Export');
+    return;
+  }
+
+  let list = siteVisitLogsGlobal;
+  if (selectedMasterProject !== 'all') {
+    list = siteVisitLogsGlobal.filter(item => {
+      return item.projectId === selectedMasterProject || item.projectName === selectedMasterProject;
+    });
+  }
+
+  if (list.length === 0) {
+    alert('ไม่พบข้อมูลรายงานหน้างานสำหรับโครงการที่เลือก');
+    return;
+  }
+
+  const excelData = list.map(item => {
+    const imgCount = (item.images && item.images.length > 0)
+      ? item.images.length
+      : (item.imageData ? 1 : 0);
+
+    let riskLabel = 'ปกติ (Low Risk)';
+    if (item.riskLevel === 'High') riskLabel = 'วิกฤต (High Risk)';
+    else if (item.riskLevel === 'Medium') riskLabel = 'เฝ้าระวัง (Medium Risk)';
+
+    return {
+      "รหัสโครงการ": item.projectId || '-',
+      "ชื่อโครงการ": item.projectName || '-',
+      "ผู้รับเหมา": item.contractor || '-',
+      "วันที่เข้าตรวจ": item.visitDate || '-',
+      "ระดับความเสี่ยง": riskLabel,
+      "ความคืบหน้า & การใช้งานสินค้า": item.siteProgress || '-',
+      "แผนเรียกสินค้า (Material Forecast)": item.materialForecast || '-',
+      "ปัญหา / ความเสี่ยง": item.issuesAndRisks || '-',
+      "สิ่งที่ต้องติดตามสัปดาห์หน้า": item.nextWeekActions || '-',
+      "จำนวนรูปภาพที่แนบ": imgCount,
+      "วันที่บันทึกระบบ": item.createdAt ? new Date(item.createdAt).toLocaleString('th-TH') : '-'
+    };
+  });
+
+  const projSuffix = selectedMasterProject !== 'all' ? `_${selectedMasterProject}` : '_All_Projects';
+  downloadExcel(excelData, `Weekly_Site_Visits${projSuffix}`, 'Site_Visits');
 }
 
 /**
