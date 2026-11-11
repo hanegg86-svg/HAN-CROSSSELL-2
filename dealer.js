@@ -1,7 +1,10 @@
 /**
  * Dealer Actual Reconciliation & Charts (dealer.js)
  * จัดการข้อมูลยอดขายผ่านผู้แทนจำหน่าย (Dealer), จับคู่รหัสโครงการ, กราฟเปรียบเทียบ Ropp vs Dealer Actual
- * ปรับปรุง: คงค่าช่วงเวลาที่เลือกไว้ (ไม่ Reset) เมื่อมีการสลับหน่วยแสดงผล และอัปเดตสรุป KPI
+ * ปรับปรุง:
+ * 1. ยอด Actual ดึงค่าปริมาณขายจากช่อง AL (Actual_RUNIT) แทนช่อง AB (Actual)
+ * 2. ช่องหน่วย (Unit) ดึงจากช่อง AM (Report_Unit) / Sales_Unit
+ * 3. คงค่าช่วงเวลาที่เลือกไว้ (ไม่ Reset) เมื่อสลับหน่วย และอัปเดตสรุป KPI
  */
 
 function handleDealerFile(file) {
@@ -37,8 +40,27 @@ function processDealerCSV(rows) {
     const prodGroupName = (r['PRD_GROUP_NAME'] || r['prd_group_name'] || r['MATERIALNAME'] || '-').trim();
     const monthVal = String(r['Months'] || r['months'] || '-').trim();
     const yearVal = String(r['Years'] || r['years'] || '-').trim();
-    const actualVal = parseNum(r['Actual'] || r['actual']);
-    const runitVal = (r['Actual_RUNIT'] || r['ACTUAL_RUNIT'] || r['actual_runit'] || r['RUNIT'] || r['runit'] || '-').trim();
+
+    // ดึงค่ายอด Actual จากช่อง AL (Actual_RUNIT) แทนช่อง AB (Actual)
+    const rawActualRUNIT = r['Actual_RUNIT'] !== undefined ? r['Actual_RUNIT'] : (r['actual_runit'] !== undefined ? r['actual_runit'] : r['ACTUAL_RUNIT']);
+    let actualVal = 0;
+    if (rawActualRUNIT !== undefined && rawActualRUNIT !== null && String(rawActualRUNIT).trim() !== '') {
+      actualVal = parseNum(rawActualRUNIT);
+    } else {
+      actualVal = parseNum(r['Actual'] || r['actual']);
+    }
+
+    // ดึงชื่อหน่วยจากช่อง AM (Report_Unit) หรือ Sales_Unit
+    const runitVal = (
+      r['Report_Unit'] || 
+      r['report_unit'] || 
+      r['REPORT_UNIT'] || 
+      r['Sales_Unit'] || 
+      r['sales_unit'] || 
+      r['Actual_RUNIT_NAME'] || 
+      '-'
+    ).trim();
+
     const netAmountVal = parseNum(r['NetAmount'] || r['netamount']);
     const periodStr = `${monthVal}/${yearVal}`;
 
@@ -204,7 +226,7 @@ function exportDealerToExcel() {
     "กลุ่มสินค้า": item.productGroup,
     "งวด (เดือน/ปี)": item.period,
     "ปริมาณขายจริง (Actual)": item.actual,
-    "หน่วย (Actual_RUNIT)": item.runit,
+    "หน่วย (Report_Unit)": item.runit,
     "ยอดขายสุทธิ (NetAmount บาท)": item.netAmount
   }));
   downloadExcel(data, 'Dealer_Actual_Sales_Matched_Only', 'Dealer_Sales');
