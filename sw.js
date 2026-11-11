@@ -1,10 +1,10 @@
 /**
  * Service Worker - sw.js
  * จัดการ Caching ด้วยกลยุทธ์ Network-First สำหรับโหมด Offline PWA
- * อัปเดตเวอร์ชันแคชเป็น v6 สำหรับระบบ Export Excel ของรายงานหน้างาน
+ * อัปเดตเวอร์ชันแคชเป็น v7 สำหรับการคงค่าช่วงเวลาเดือนเมื่อสลับหน่วยแสดงผล
  */
 
-const CACHE_NAME = 'sales-analytics-v6';
+const CACHE_NAME = 'sales-analytics-v7';
 
 // รายการไฟล์ทั้งหมดในโปรเจกต์ที่ต้องแคชไว้ใช้งานออฟไลน์
 const STATIC_ASSETS = [

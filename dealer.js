@@ -1,7 +1,7 @@
 /**
  * Dealer Actual Reconciliation & Charts (dealer.js)
  * จัดการข้อมูลยอดขายผ่านผู้แทนจำหน่าย (Dealer), จับคู่รหัสโครงการ, กราฟเปรียบเทียบ Ropp vs Dealer Actual
- * ปรับปรุง: อัปเดตยอดสรุป KPI บน Dashboard ทันทีที่อัปโหลดหรือประมวลผลไฟล์ Dealer สำเร็จ
+ * ปรับปรุง: คงค่าช่วงเวลาที่เลือกไว้ (ไม่ Reset) เมื่อมีการสลับหน่วยแสดงผล และอัปเดตสรุป KPI
  */
 
 function handleDealerFile(file) {
@@ -99,11 +99,9 @@ function processDealerCSV(rows) {
   if (elMatchSummary) {
     elMatchSummary.textContent = `จับคู่ตรงกับไฟล์ยอดขายได้ ${matchedDealerList.length.toLocaleString()} แถว (ตัดรายการที่ไม่ตรงออกเรียบร้อยแล้ว)`;
   }
-
   renderDealerTable();
   initDealerComparisonControls();
 
-  // อัปเดตกล่องยอดขายจริงรวม (Total Act) และอัตราความสำเร็จ บน KPI Dashboard ทันที
   if (typeof updateKpiSummary === 'function') {
     updateKpiSummary();
   }
@@ -220,11 +218,24 @@ function initDealerComparisonControls() {
   const sMonth = document.getElementById('dealerCompStartMonthSelect');
   const eMonth = document.getElementById('dealerCompEndMonthSelect');
   if (sMonth && eMonth && allMonthHeadersGlobal.length > 0) {
+    const currentStartVal = sMonth.value;
+    const currentEndVal = eMonth.value;
+
     const opts = allMonthHeadersGlobal.map((m, idx) => `<option value="${idx}">${escapeHtml(m.monthYear)}</option>`).join('');
     sMonth.innerHTML = opts;
     eMonth.innerHTML = opts;
-    if (!sMonth.value) sMonth.value = "0";
-    if (!eMonth.value) eMonth.value = String(allMonthHeadersGlobal.length - 1);
+
+    if (currentStartVal !== '' && sMonth.querySelector(`option[value="${currentStartVal}"]`)) {
+      sMonth.value = currentStartVal;
+    } else {
+      sMonth.value = "0";
+    }
+
+    if (currentEndVal !== '' && eMonth.querySelector(`option[value="${currentEndVal}"]`)) {
+      eMonth.value = currentEndVal;
+    } else {
+      eMonth.value = String(allMonthHeadersGlobal.length - 1);
+    }
   }
 
   renderDealerCompProductCheckboxes();

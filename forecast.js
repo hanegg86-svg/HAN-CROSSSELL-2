@@ -1,6 +1,7 @@
 /**
  * Sales Forecast & Cross-tab Matrix (forecast.js)
  * จัดการโมดูลการคาดการณ์ยอดขายล่วงหน้า (Ropp) กราฟสินค้า/โครงการ และตาราง Matrix
+ * ปรับปรุง: คงค่าเดือนที่เลือกไว้เดิมเมื่อสลับหน่วยแสดงผล (ไม่ Reset)
  */
 
 function initForecastControls() {
@@ -12,16 +13,40 @@ function initForecastControls() {
   const fSingle = document.getElementById('forecastProjectSingleMonthSelect');
   const mMonth = document.getElementById('matrixMonthSelect');
 
+  const curFStart = fStart ? fStart.value : null;
+  const curFEnd = fEnd ? fEnd.value : null;
+  const curFSingle = fSingle ? fSingle.value : null;
+  const curMMonth = mMonth ? mMonth.value : null;
+
   if (fStart) fStart.innerHTML = monthOptionsHtml;
   if (fEnd) fEnd.innerHTML = monthOptionsHtml;
   if (fSingle) fSingle.innerHTML = monthOptionsHtml;
   if (mMonth) mMonth.innerHTML = monthOptionsHtml;
 
-  if (fStart) fStart.value = "0";
-  const initialEndIdx = Math.min(availableForecastMonths.length - 1, 2);
-  if (fEnd) fEnd.value = String(initialEndIdx);
-  if (fSingle) fSingle.value = "0";
-  if (mMonth) mMonth.value = "0";
+  if (fStart && curFStart !== null && curFStart !== '' && fStart.querySelector(`option[value="${curFStart}"]`)) {
+    fStart.value = curFStart;
+  } else if (fStart) {
+    fStart.value = "0";
+  }
+
+  if (fEnd && curFEnd !== null && curFEnd !== '' && fEnd.querySelector(`option[value="${curFEnd}"]`)) {
+    fEnd.value = curFEnd;
+  } else if (fEnd) {
+    const initialEndIdx = Math.min(availableForecastMonths.length - 1, 2);
+    fEnd.value = String(initialEndIdx);
+  }
+
+  if (fSingle && curFSingle !== null && curFSingle !== '' && fSingle.querySelector(`option[value="${curFSingle}"]`)) {
+    fSingle.value = curFSingle;
+  } else if (fSingle) {
+    fSingle.value = "0";
+  }
+
+  if (mMonth && curMMonth !== null && curMMonth !== '' && mMonth.querySelector(`option[value="${curMMonth}"]`)) {
+    mMonth.value = curMMonth;
+  } else if (mMonth) {
+    mMonth.value = "0";
+  }
 
   renderForecastProductCheckboxes();
   updateForecastProductChart();
