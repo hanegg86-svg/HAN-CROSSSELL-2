@@ -1,10 +1,10 @@
 /**
  * Service Worker - sw.js
  * จัดการ Caching ด้วยกลยุทธ์ Network-First สำหรับโหมด Offline PWA
- * อัปเดตเวอร์ชันแคชเป็น v12 เพื่อบังคับล้างแคชเก่าและดึง sales-engine.js ตัวล่าสุดมาใช้งานทันที
+ * อัปเดตเวอร์ชันแคชเป็น v13 และปรับรายการไฟล์สคริปต์เป็น ?v=12 ให้ตรงกับ index.html
  */
 
-const CACHE_NAME = 'sales-analytics-v12';
+const CACHE_NAME = 'sales-analytics-v13';
 
 // รายการไฟล์ทั้งหมดในโปรเจกต์ที่ต้องแคชไว้ใช้งานออฟไลน์
 const STATIC_ASSETS = [
@@ -13,12 +13,12 @@ const STATIC_ASSETS = [
   './style.css',
   './manifest.json',
   './icon.png',
-  './db.js?v=11',
-  './state.js?v=11',
-  './dealer.js?v=11',
-  './forecast.js?v=11',
-  './site-visit.js?v=11',
-  './sales-engine.js?v=11',
+  './db.js?v=12',
+  './state.js?v=12',
+  './dealer.js?v=12',
+  './forecast.js?v=12',
+  './site-visit.js?v=12',
+  './sales-engine.js?v=12',
   'https://cdn.tailwindcss.com',
   'https://cdn.jsdelivr.net/npm/chart.js',
   'https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js',

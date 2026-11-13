@@ -5,9 +5,8 @@
  * 1. ยอดขายจริงรวม (Total Act) และอัตราความสำเร็จคำนวณจากไฟล์ Dealer CSV (matchedDealerList) โดยตรง
  * 2. รองรับปุ่ม "รวมข้อมูลโครงการ" (ย้ายเฉพาะยอด Actual และรายงาน Site Visit เข้าโครงการหลัก)
  * 3. รองรับปุ่ม "Backup JSON" และ "Restore JSON" แบบเลือกหมวดหมู่ได้ และประกอบไฟล์แบบแบ่งส่วน (Chunked Blob Assembly)
- * 4. เพิ่มตัวกรองรายงาน Weekly แบบเลือกได้ 1 เดือนหรือหลายเดือน (Multi-Select Month Filter)
- * 5. เพิ่มปุ่ม Export รายงาน Updated Site Weekly เป็น Excel 3 คอลัมน์ (ชื่อโครงการ, สรุปการทำงานอาทิตย์ที่ผ่านมา, แผนงานที่จะต้องทำต่อในสัปดาห์ต่อไป)
- *    พร้อมระบบให้ AI (gemini-3.5-flash-lite) สรุปรวมหลายกล่องข้อความเป็นชุดเดียวก่อน Export
+ * 4. เชื่อมตัวกรองรายงาน Weekly แบบเลือกได้ 1 เดือนหรือหลายเดือน (Multi-Select Month Filter) เข้ากับปุ่มใน Section 1 และ Modal Export
+ * 5. เชื่อมระบบ Export รายงาน Updated Site Weekly เป็น Excel 3 คอลัมน์ และระบบสรุปรวมด้วย AI (gemini-3.5-flash-lite)
  * 6. รองรับเมนูพับเก็บได้บนหน้าจอมือถือ (toggleMobileHeaderTools)
  */
 
@@ -920,6 +919,7 @@ function exportModalProductsToExcel() {
 let selectedWeeklyFilterMonths = new Set(); // เก็บ key รูปแบบ 'YYYY-MM'
 let allWeeklyAvailableMonths = []; // [{ key: '2026-11', label: 'พ.ย. 2026', sortVal: 202611 }]
 let weeklyMonthFilterInitialized = false;
+let allWeeklyModalVisitsPool = []; // เก็บรายการรายงานหน้างานทั้งหมดไว้กรองตามเดือนภายใน Modal
 
 function getVisitMonthInfo(visit) {
   const thaiMonthsShort = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
@@ -990,50 +990,52 @@ function getVisitMonthInfo(visit) {
 }
 
 function ensureWeeklyMonthFilterUI() {
+  // ใช้งานปุ่มตัวกรองเดือนที่มีอยู่แล้วใน index.html (#weeklySectionMonthDropdownBtn) เป็นหลัก เพื่อไม่ให้แสดงปุ่มซ้ำซ้อน
+  if (document.getElementById('weeklySectionMonthDropdownBtn')) return;
+
   const section = document.getElementById('weeklySiteVisitSection');
   if (!section) return;
 
-  // ค้นหากล่องปุ่มด้านขวาในหัวข้อ Section 1
   const headerBar = section.firstElementChild;
   if (!headerBar) return;
   const actionsWrap = headerBar.lastElementChild;
   if (!actionsWrap) return;
 
-  if (!document.getElementById('weeklyMonthFilterWrapper')) {
-    const wrapper = document.createElement('div');
-    wrapper.id = 'weeklyMonthFilterWrapper';
-    wrapper.className = 'relative';
-    wrapper.innerHTML = `
-      <button id="weeklyMonthDropdownBtn" type="button" onclick="toggleWeeklyMonthDropdown(event)"
-              class="inline-flex items-center gap-1.5 bg-white hover:bg-sky-50 text-sky-900 border border-sky-300 text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm transition-all">
-        <span>📅</span>
-        <span id="weeklyMonthDropdownLabel">เดือนทั้งหมด</span>
-        <svg class="w-3.5 h-3.5 text-sky-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-        </svg>
-      </button>
-      <div id="weeklyMonthDropdownMenu" class="hidden absolute right-0 mt-2 w-60 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-3 space-y-2">
-        <div class="flex justify-between items-center pb-2 border-b border-slate-100">
-          <span class="text-xs font-bold text-slate-700">กรองเดือนรายงาน Weekly</span>
-          <div class="flex gap-2">
-            <button type="button" onclick="selectAllWeeklyFilterMonths(true)" class="text-[11px] text-sky-600 hover:underline font-medium">เลือกทั้งหมด</button>
-            <span class="text-slate-300">|</span>
-            <button type="button" onclick="selectAllWeeklyFilterMonths(false)" class="text-[11px] text-slate-500 hover:underline">ล้างค่า</button>
-          </div>
+  const wrapper = document.createElement('div');
+  wrapper.className = 'relative';
+  wrapper.innerHTML = `
+    <button id="weeklySectionMonthDropdownBtn" type="button"
+            class="inline-flex items-center gap-1.5 bg-white hover:bg-sky-50 text-sky-900 border border-sky-300 text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm transition-all">
+      <span>📅</span>
+      <span id="weeklySectionMonthDropdownLabel">เลือกเดือนทั้งหมด</span>
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+      </svg>
+    </button>
+    <div id="weeklySectionMonthDropdownMenu" class="hidden absolute left-0 sm:right-0 sm:left-auto mt-2 w-64 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-3 space-y-2">
+      <div class="flex justify-between items-center pb-2 border-b border-slate-100">
+        <span class="text-xs font-bold text-slate-700">กรองเดือนรายงาน Weekly</span>
+        <div class="flex gap-2">
+          <button type="button" onclick="selectAllWeeklyMonths(true)" class="text-[11px] text-sky-600 hover:underline font-medium">เลือกทั้งหมด</button>
+          <span class="text-slate-300">|</span>
+          <button type="button" onclick="selectAllWeeklyMonths(false)" class="text-[11px] text-slate-500 hover:underline">ล้างค่า</button>
         </div>
-        <div id="weeklyMonthCheckboxList" class="max-h-48 overflow-y-auto custom-scrollbar space-y-1 text-xs text-slate-700"></div>
       </div>
-    `;
-    actionsWrap.insertBefore(wrapper, actionsWrap.firstChild);
-  }
+      <div id="weeklySectionMonthCheckboxList" class="max-h-52 overflow-y-auto custom-scrollbar space-y-1.5 text-xs text-slate-700"></div>
+    </div>
+  `;
+  actionsWrap.insertBefore(wrapper, actionsWrap.firstChild);
 }
 
-function toggleWeeklyMonthDropdown(e) {
+function toggleWeeklyMonthDropdown(e, targetMenuId = 'weeklySectionMonthDropdownMenu') {
   if (e) e.stopPropagation();
-  const menu = document.getElementById('weeklyMonthDropdownMenu');
-  if (menu) {
-    menu.classList.toggle('hidden');
-  }
+  const sectionMenu = document.getElementById('weeklySectionMonthDropdownMenu');
+  const modalMenu = document.getElementById('weeklyModalMonthDropdownMenu');
+  const targetMenu = document.getElementById(targetMenuId);
+
+  if (sectionMenu && sectionMenu !== targetMenu) sectionMenu.classList.add('hidden');
+  if (modalMenu && modalMenu !== targetMenu) modalMenu.classList.add('hidden');
+  if (targetMenu) targetMenu.classList.toggle('hidden');
 }
 
 function refreshWeeklyAvailableMonths(visitsList) {
@@ -1073,10 +1075,17 @@ function refreshWeeklyAvailableMonths(visitsList) {
 }
 
 function renderWeeklyMonthCheckboxes() {
-  const listEl = document.getElementById('weeklyMonthCheckboxList');
-  const labelEl = document.getElementById('weeklyMonthDropdownLabel');
+  const checkboxLists = [
+    document.getElementById('weeklySectionMonthCheckboxList'),
+    document.getElementById('weeklyModalMonthCheckboxList')
+  ].filter(Boolean);
 
-  if (listEl) {
+  const labelEls = [
+    document.getElementById('weeklySectionMonthDropdownLabel'),
+    document.getElementById('weeklyModalMonthDropdownLabel')
+  ].filter(Boolean);
+
+  checkboxLists.forEach(listEl => {
     if (allWeeklyAvailableMonths.length === 0) {
       listEl.innerHTML = `<div class="text-slate-400 text-center py-2">ยังไม่มีข้อมูลเดือน</div>`;
     } else {
@@ -1093,23 +1102,47 @@ function renderWeeklyMonthCheckboxes() {
         `;
       }).join('');
     }
+  });
+
+  const total = allWeeklyAvailableMonths.length;
+  const count = selectedWeeklyFilterMonths.size;
+  let labelText = 'เลือกเดือนทั้งหมด';
+  if (total === 0 || count === total) {
+    labelText = 'เลือกเดือนทั้งหมด';
+  } else if (count === 0) {
+    labelText = 'ไม่ได้เลือกเดือน (0)';
+  } else if (count === 1) {
+    const onlyKey = Array.from(selectedWeeklyFilterMonths)[0];
+    const found = allWeeklyAvailableMonths.find(m => m.key === onlyKey);
+    labelText = found ? found.label : 'เลือก 1 เดือน';
+  } else {
+    labelText = `เลือก ${count} เดือน`;
   }
 
-  if (labelEl) {
-    const total = allWeeklyAvailableMonths.length;
-    const count = selectedWeeklyFilterMonths.size;
-    if (total === 0 || count === total) {
-      labelEl.textContent = 'เดือนทั้งหมด';
-    } else if (count === 0) {
-      labelEl.textContent = 'ไม่ได้เลือกเดือน (0)';
-    } else if (count === 1) {
-      const onlyKey = Array.from(selectedWeeklyFilterMonths)[0];
-      const found = allWeeklyAvailableMonths.find(m => m.key === onlyKey);
-      labelEl.textContent = found ? found.label : 'เลือก 1 เดือน';
-    } else {
-      labelEl.textContent = `เลือก ${count} เดือน`;
-    }
-  }
+  labelEls.forEach(labelEl => {
+    labelEl.textContent = labelText;
+  });
+}
+
+function refreshWeeklyModalCandidatesKeepSearch() {
+  const proj = selectedMasterProject !== 'all' ? projectsMapGlobal[selectedMasterProject] : null;
+  const filtered = filterSiteVisitsBySelectedMonths(allWeeklyModalVisitsPool).filter(v => {
+    if (selectedMasterProject === 'all') return true;
+    return v.projectId === selectedMasterProject ||
+           v.projectName === selectedMasterProject ||
+           (proj && (v.projectId === proj.id || v.projectName === proj.name));
+  });
+
+  filtered.sort((a, b) => {
+    const tA = a.createdAt ? new Date(a.createdAt).getTime() : (Number(a.id) || 0);
+    const tB = b.createdAt ? new Date(b.createdAt).getTime() : (Number(b.id) || 0);
+    return tB - tA;
+  });
+
+  weeklyExportCandidatesCache = filtered;
+  weeklyExportSelectedIds = new Set(filtered.map((v, idx) => String(v.id !== undefined ? v.id : idx)));
+  hideWeeklyAiSummaryPreview();
+  renderWeeklyExportItemsList();
 }
 
 function toggleWeeklyFilterMonth(monthKey) {
@@ -1125,11 +1158,11 @@ function toggleWeeklyFilterMonth(monthKey) {
   }
   const exportModal = document.getElementById('weeklySelectExportModal');
   if (exportModal && !exportModal.classList.contains('hidden')) {
-    openWeeklySelectExportModal();
+    refreshWeeklyModalCandidatesKeepSearch();
   }
 }
 
-function selectAllWeeklyFilterMonths(shouldSelectAll) {
+function selectAllWeeklyMonths(shouldSelectAll) {
   if (shouldSelectAll) {
     selectedWeeklyFilterMonths = new Set(allWeeklyAvailableMonths.map(m => m.key));
   } else {
@@ -1142,9 +1175,11 @@ function selectAllWeeklyFilterMonths(shouldSelectAll) {
   }
   const exportModal = document.getElementById('weeklySelectExportModal');
   if (exportModal && !exportModal.classList.contains('hidden')) {
-    openWeeklySelectExportModal();
+    refreshWeeklyModalCandidatesKeepSearch();
   }
 }
+
+const selectAllWeeklyFilterMonths = selectAllWeeklyMonths;
 
 function filterSiteVisitsBySelectedMonths(visitsList) {
   const list = Array.isArray(visitsList) ? visitsList : [];
@@ -1190,6 +1225,21 @@ function installWeeklySiteVisitMonthFilterHooks() {
     };
     wrappedCopy.__wrappedWithMonthFilter = true;
     window.copyWeeklySummaryText = wrappedCopy;
+  }
+
+  if (typeof window.exportSiteVisitsToExcel === 'function' && !window.exportSiteVisitsToExcel.__wrappedWithMonthFilter) {
+    const origExport = window.exportSiteVisitsToExcel;
+    const wrappedExport = function(...args) {
+      const backupLogs = siteVisitLogsGlobal;
+      try {
+        siteVisitLogsGlobal = filterSiteVisitsBySelectedMonths(backupLogs);
+        return origExport.apply(this, args);
+      } finally {
+        siteVisitLogsGlobal = backupLogs;
+      }
+    };
+    wrappedExport.__wrappedWithMonthFilter = true;
+    window.exportSiteVisitsToExcel = wrappedExport;
   }
 }
 
@@ -1359,13 +1409,13 @@ function ensureMergeAndBackupModalsExist() {
     const wrapper = document.createElement('div');
     wrapper.innerHTML = `
       <div id="weeklySelectExportModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-100">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-100">
           <div class="p-5 border-b border-indigo-100 bg-indigo-50/80 flex justify-between items-center">
             <div class="flex items-center gap-2">
               <span class="text-xl">📋</span>
               <div>
                 <h3 class="text-base font-bold text-indigo-950">Export รายงาน Updated Site Weekly (.xlsx)</h3>
-                <p class="text-xs text-indigo-700">เลือกรายการงานอัปเดต (ตาราง 3 คอลัมน์: ชื่อโครงการ, สรุปการทำงานอาทิตย์ที่ผ่านมา, แผนงานสัปดาห์ต่อไป)</p>
+                <p class="text-xs text-indigo-700">ตาราง 3 คอลัมน์: 1.ชื่อโครงการ | 2.สรุปการทำงานอาทิตย์ที่ผ่านมา | 3.แผนงานที่จะต้องทำต่อในสัปดาห์ต่อไป</p>
               </div>
             </div>
             <button onclick="closeWeeklySelectExportModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-full">
@@ -1374,8 +1424,28 @@ function ensureMergeAndBackupModalsExist() {
           </div>
           <div class="p-5 overflow-y-auto space-y-3 custom-scrollbar text-xs flex-1">
             <div class="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-2 pb-2 border-b border-slate-100">
-              <input type="text" id="weeklyExportSearchInput" oninput="renderWeeklyExportItemsList()" placeholder="ค้นหาชื่อโครงการ, วันที่ หรือข้อความอัปเดต..."
-                     class="text-xs px-3 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white w-full sm:w-64">
+              <div class="flex flex-wrap items-center gap-2">
+                <input type="text" id="weeklyExportSearchInput" oninput="renderWeeklyExportItemsList()" placeholder="ค้นหาชื่อโครงการ, วันที่ หรือข้อความ..."
+                       class="text-xs px-3 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white w-full sm:w-56">
+                <div class="relative">
+                  <button id="weeklyModalMonthDropdownBtn" type="button" class="inline-flex items-center gap-1.5 bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-200 text-xs font-semibold px-2.5 py-1.5 rounded-lg shadow-sm transition-all">
+                    <span>📅</span>
+                    <span id="weeklyModalMonthDropdownLabel">เลือกเดือนทั้งหมด</span>
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                  </button>
+                  <div id="weeklyModalMonthDropdownMenu" class="hidden absolute left-0 mt-2 w-60 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-3 space-y-2">
+                    <div class="flex justify-between items-center pb-2 border-b border-slate-100">
+                      <span class="text-xs font-bold text-slate-700">เลือกเดือน (1 หรือหลายเดือน)</span>
+                      <div class="flex gap-2">
+                        <button type="button" onclick="selectAllWeeklyMonths(true)" class="text-[11px] text-sky-600 hover:underline font-medium">เลือกทั้งหมด</button>
+                        <span class="text-slate-300">|</span>
+                        <button type="button" onclick="selectAllWeeklyMonths(false)" class="text-[11px] text-slate-500 hover:underline">ล้างค่า</button>
+                      </div>
+                    </div>
+                    <div id="weeklyModalMonthCheckboxList" class="max-h-48 overflow-y-auto custom-scrollbar space-y-1.5 text-xs text-slate-700"></div>
+                  </div>
+                </div>
+              </div>
               <div class="flex items-center justify-between sm:justify-end gap-2">
                 <span id="weeklyExportSelectedCount" class="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md">เลือก 0 รายการ</span>
                 <button type="button" onclick="toggleAllWeeklyExportItems(true)" class="text-[11px] text-indigo-600 hover:underline font-semibold">เลือกทั้งหมด</button>
@@ -1383,40 +1453,47 @@ function ensureMergeAndBackupModalsExist() {
                 <button type="button" onclick="toggleAllWeeklyExportItems(false)" class="text-[11px] text-slate-500 hover:underline">ล้างการเลือก</button>
               </div>
             </div>
-            <div id="weeklyExportItemsList" class="space-y-2 max-h-64 overflow-y-auto custom-scrollbar pr-0.5">
+            <div id="weeklyExportItemsList" class="space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-0.5">
               <div class="text-slate-400 text-center py-6">กำลังโหลดรายการรายงานหน้างาน...</div>
             </div>
-            <div id="weeklyAiSummaryPreviewBox" class="hidden p-3.5 rounded-xl bg-purple-50/70 border border-purple-200 space-y-2.5">
-              <div class="flex items-center justify-between">
+            <div id="weeklyAiSummaryPreviewBox" class="hidden p-4 rounded-xl bg-purple-50/70 border border-purple-200 space-y-3">
+              <div class="flex justify-between items-center">
                 <span class="font-bold text-purple-950 flex items-center gap-1.5">
-                  <span>✨</span> <span>ผลสรุปรวมด้วย AI (gemini-3.5-flash-lite) — แก้ไขข้อความก่อน Export ได้:</span>
+                  <span>✨</span> ผลสรุปรวมข้อความจาก AI (gemini-3.5-flash-lite) — แก้ไขข้อความก่อน Export ได้
                 </span>
-                <button type="button" onclick="clearWeeklyAiSummaryPreview()" class="text-[11px] text-rose-600 hover:underline font-medium">ยกเลิกโหมดสรุปรวม</button>
+                <button type="button" onclick="hideWeeklyAiSummaryPreview()" class="text-[11px] text-slate-500 hover:text-rose-600 hover:underline">ปิดกล่องสรุป AI</button>
               </div>
               <div>
-                <label class="block font-semibold text-slate-700 mb-0.5">1. ชื่อโครงการ:</label>
-                <input type="text" id="weeklyAiPreviewProject" class="w-full px-2.5 py-1.5 border border-purple-200 rounded-lg bg-white font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-400">
+                <label class="block font-semibold text-slate-700 mb-1">1. ชื่อโครงการ:</label>
+                <input type="text" id="aiWeeklyProjectInput" class="w-full px-3 py-1.5 border border-purple-200 rounded-lg bg-white text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-purple-500">
               </div>
-              <div>
-                <label class="block font-semibold text-slate-700 mb-0.5">2. สรุปการทำงานอาทิตย์ที่ผ่านมา:</label>
-                <textarea id="weeklyAiPreviewLastWeek" rows="3" class="w-full px-2.5 py-1.5 border border-purple-200 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-400 leading-relaxed"></textarea>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label class="block font-semibold text-slate-700 mb-1">2. สรุปการทำงานอาทิตย์ที่ผ่านมา:</label>
+                  <textarea id="aiWeeklyPastWorkTextarea" rows="4" class="w-full px-3 py-2 border border-purple-200 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500 leading-relaxed"></textarea>
+                </div>
+                <div>
+                  <label class="block font-semibold text-slate-700 mb-1">3. แผนงานที่จะต้องทำต่อในสัปดาห์ต่อไป:</label>
+                  <textarea id="aiWeeklyNextPlanTextarea" rows="4" class="w-full px-3 py-2 border border-purple-200 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500 leading-relaxed"></textarea>
+                </div>
               </div>
-              <div>
-                <label class="block font-semibold text-slate-700 mb-0.5">3. แผนงานที่จะต้องทำต่อในสัปดาห์ต่อไป:</label>
-                <textarea id="weeklyAiPreviewNextWeek" rows="3" class="w-full px-2.5 py-1.5 border border-purple-200 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-400 leading-relaxed"></textarea>
+              <div class="flex justify-end">
+                <button type="button" onclick="exportAiSummarizedWeeklyExcel()" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-1.5">
+                  <span>📥</span> Export Excel จากผลสรุป AI (1 แถวรวม)
+                </button>
               </div>
             </div>
           </div>
           <div class="p-4 border-t border-slate-100 bg-slate-50 flex flex-wrap justify-between items-center gap-2">
-            <button id="summarizeWeeklyAiBtn" type="button" onclick="summarizeSelectedWeeklyWithAI()" class="px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-1.5">
-              <span>🤖</span> <span>ให้ AI สรุปรวมข้อความ (gemini-3.5-flash-lite)</span>
+            <button id="aiSummarizeWeeklyBtn" type="button" onclick="summarizeSelectedWeeklyWithAI()" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-1.5">
+              <span>🤖</span> ให้ AI สรุปรวมข้อความ (gemini-3.5-flash-lite)
             </button>
-            <div class="flex gap-2 ml-auto">
+            <div class="flex gap-2">
               <button onclick="closeWeeklySelectExportModal()" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded-lg transition-colors">
                 ยกเลิก
               </button>
               <button onclick="executeWeeklySelectedExcelExport()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-1.5">
-                <span>📥</span> Export Excel ที่เลือก
+                <span>📥</span> Export Excel ที่เลือก (แยกแถว)
               </button>
             </div>
           </div>
@@ -1477,10 +1554,12 @@ function buildWeeklyThreeColumnsData(visit) {
   };
 }
 
-function clearWeeklyAiSummaryPreview() {
+function hideWeeklyAiSummaryPreview() {
   const previewBox = document.getElementById('weeklyAiSummaryPreviewBox');
   if (previewBox) previewBox.classList.add('hidden');
 }
+
+const clearWeeklyAiSummaryPreview = hideWeeklyAiSummaryPreview;
 
 async function openWeeklySelectExportModal() {
   ensureMergeAndBackupModalsExist();
@@ -1494,10 +1573,11 @@ async function openWeeklySelectExportModal() {
       allVisits = siteVisitLogsGlobal;
     }
 
-    refreshWeeklyAvailableMonths(allVisits);
+    allWeeklyModalVisitsPool = Array.isArray(allVisits) ? allVisits : [];
+    refreshWeeklyAvailableMonths(allWeeklyModalVisitsPool);
 
     const proj = selectedMasterProject !== 'all' ? projectsMapGlobal[selectedMasterProject] : null;
-    const filtered = filterSiteVisitsBySelectedMonths(allVisits || []).filter(v => {
+    const filtered = filterSiteVisitsBySelectedMonths(allWeeklyModalVisitsPool).filter(v => {
       if (selectedMasterProject === 'all') return true;
       return v.projectId === selectedMasterProject ||
              v.projectName === selectedMasterProject ||
@@ -1516,7 +1596,7 @@ async function openWeeklySelectExportModal() {
     const searchInput = document.getElementById('weeklyExportSearchInput');
     if (searchInput) searchInput.value = '';
 
-    clearWeeklyAiSummaryPreview();
+    hideWeeklyAiSummaryPreview();
     renderWeeklyExportItemsList();
     modal.classList.remove('hidden');
   } catch (err) {
@@ -1527,6 +1607,8 @@ async function openWeeklySelectExportModal() {
 function closeWeeklySelectExportModal() {
   const modal = document.getElementById('weeklySelectExportModal');
   if (modal) modal.classList.add('hidden');
+  const modalMenu = document.getElementById('weeklyModalMonthDropdownMenu');
+  if (modalMenu) modalMenu.classList.add('hidden');
 }
 
 function updateWeeklyExportSelectedCount() {
@@ -1534,7 +1616,7 @@ function updateWeeklyExportSelectedCount() {
   if (el) {
     el.textContent = `เลือก ${weeklyExportSelectedIds.size} จาก ${weeklyExportCandidatesCache.length} รายการ`;
   }
-  const aiBtn = document.getElementById('summarizeWeeklyAiBtn');
+  const aiBtn = document.getElementById('aiSummarizeWeeklyBtn');
   if (aiBtn) {
     if (weeklyExportSelectedIds.size >= 2) {
       aiBtn.classList.remove('opacity-60');
@@ -1550,7 +1632,7 @@ function toggleSingleWeeklyExportItem(itemId, isChecked) {
   } else {
     weeklyExportSelectedIds.delete(String(itemId));
   }
-  clearWeeklyAiSummaryPreview();
+  hideWeeklyAiSummaryPreview();
   updateWeeklyExportSelectedCount();
 }
 
@@ -1572,7 +1654,7 @@ function toggleAllWeeklyExportItems(shouldSelect) {
       }
     }
   });
-  clearWeeklyAiSummaryPreview();
+  hideWeeklyAiSummaryPreview();
   renderWeeklyExportItemsList();
 }
 
@@ -1657,7 +1739,7 @@ async function summarizeSelectedWeeklyWithAI() {
     return;
   }
 
-  const aiBtn = document.getElementById('summarizeWeeklyAiBtn');
+  const aiBtn = document.getElementById('aiSummarizeWeeklyBtn');
   const origBtnHtml = aiBtn ? aiBtn.innerHTML : '';
   if (aiBtn) {
     aiBtn.disabled = true;
@@ -1706,9 +1788,9 @@ ${combinedRawText}`;
     const parsedSummary = JSON.parse(cleanedJsonStr);
 
     const previewBox = document.getElementById('weeklyAiSummaryPreviewBox');
-    const elProj = document.getElementById('weeklyAiPreviewProject');
-    const elLast = document.getElementById('weeklyAiPreviewLastWeek');
-    const elNext = document.getElementById('weeklyAiPreviewNextWeek');
+    const elProj = document.getElementById('aiWeeklyProjectInput');
+    const elLast = document.getElementById('aiWeeklyPastWorkTextarea');
+    const elNext = document.getElementById('aiWeeklyNextPlanTextarea');
 
     if (elProj) elProj.value = parsedSummary.projectName || '';
     if (elLast) elLast.value = parsedSummary.lastWeekSummary || '';
@@ -1724,43 +1806,46 @@ ${combinedRawText}`;
   }
 }
 
+function exportAiSummarizedWeeklyExcel() {
+  const projectVal = (document.getElementById('aiWeeklyProjectInput')?.value || '').trim() || '-';
+  const lastWeekVal = (document.getElementById('aiWeeklyPastWorkTextarea')?.value || '').trim() || '-';
+  const nextWeekVal = (document.getElementById('aiWeeklyNextPlanTextarea')?.value || '').trim() || '-';
+
+  const excelRows = [{
+    "ชื่อโครงการ": projectVal,
+    "สรุปการทำงานอาทิตย์ที่ผ่านมา": lastWeekVal,
+    "แผนงานที่จะต้องทำต่อในสัปดาห์ต่อไป": nextWeekVal
+  }];
+
+  const ws = XLSX.utils.json_to_sheet(excelRows);
+  ws['!cols'] = [{ wch: 38 }, { wch: 65 }, { wch: 65 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Weekly_Site_Update_AI');
+  XLSX.writeFile(wb, `Weekly_Site_Update_AI_${new Date().toISOString().slice(0, 10)}.xlsx`);
+
+  closeWeeklySelectExportModal();
+}
+
 function executeWeeklySelectedExcelExport() {
-  const previewBox = document.getElementById('weeklyAiSummaryPreviewBox');
-  const isAiPreviewActive = previewBox && !previewBox.classList.contains('hidden');
+  const selectedItems = weeklyExportCandidatesCache.filter((v, idx) => {
+    const idStr = String(v.id !== undefined ? v.id : idx);
+    return weeklyExportSelectedIds.has(idStr);
+  });
 
-  let excelRows = [];
-
-  if (isAiPreviewActive) {
-    const projectVal = (document.getElementById('weeklyAiPreviewProject')?.value || '').trim() || '-';
-    const lastWeekVal = (document.getElementById('weeklyAiPreviewLastWeek')?.value || '').trim() || '-';
-    const nextWeekVal = (document.getElementById('weeklyAiPreviewNextWeek')?.value || '').trim() || '-';
-
-    excelRows = [{
-      "ชื่อโครงการ": projectVal,
-      "สรุปการทำงานอาทิตย์ที่ผ่านมา": lastWeekVal,
-      "แผนงานที่จะต้องทำต่อในสัปดาห์ต่อไป": nextWeekVal
-    }];
-  } else {
-    const selectedItems = weeklyExportCandidatesCache.filter((v, idx) => {
-      const idStr = String(v.id !== undefined ? v.id : idx);
-      return weeklyExportSelectedIds.has(idStr);
-    });
-
-    if (selectedItems.length === 0) {
-      alert('กรุณาเลือกงานอัปเดตอย่างน้อย 1 รายการก่อนกด Export');
-      return;
-    }
-
-    // ตาราง Excel 3 คอลัมน์ตามที่กำหนด
-    excelRows = selectedItems.map(v => {
-      const cols = buildWeeklyThreeColumnsData(v);
-      return {
-        "ชื่อโครงการ": cols.projectCol,
-        "สรุปการทำงานอาทิตย์ที่ผ่านมา": cols.lastWeekCol,
-        "แผนงานที่จะต้องทำต่อในสัปดาห์ต่อไป": cols.nextWeekCol
-      };
-    });
+  if (selectedItems.length === 0) {
+    alert('กรุณาเลือกงานอัปเดตอย่างน้อย 1 รายการก่อนกด Export');
+    return;
   }
+
+  // ตาราง Excel 3 คอลัมน์ตามที่กำหนด
+  const excelRows = selectedItems.map(v => {
+    const cols = buildWeeklyThreeColumnsData(v);
+    return {
+      "ชื่อโครงการ": cols.projectCol,
+      "สรุปการทำงานอาทิตย์ที่ผ่านมา": cols.lastWeekCol,
+      "แผนงานที่จะต้องทำต่อในสัปดาห์ต่อไป": cols.nextWeekCol
+    };
+  });
 
   const ws = XLSX.utils.json_to_sheet(excelRows);
   ws['!cols'] = [{ wch: 38 }, { wch: 65 }, { wch: 65 }];
@@ -2424,6 +2509,7 @@ window.executeBackupJsonDownload = executeBackupJsonDownload;
 window.handleRestoreJsonFile = handleRestoreJsonFile;
 window.toggleWeeklyMonthDropdown = toggleWeeklyMonthDropdown;
 window.toggleWeeklyFilterMonth = toggleWeeklyFilterMonth;
+window.selectAllWeeklyMonths = selectAllWeeklyMonths;
 window.selectAllWeeklyFilterMonths = selectAllWeeklyFilterMonths;
 window.openWeeklySelectExportModal = openWeeklySelectExportModal;
 window.closeWeeklySelectExportModal = closeWeeklySelectExportModal;
@@ -2431,7 +2517,9 @@ window.toggleSingleWeeklyExportItem = toggleSingleWeeklyExportItem;
 window.toggleAllWeeklyExportItems = toggleAllWeeklyExportItems;
 window.renderWeeklyExportItemsList = renderWeeklyExportItemsList;
 window.summarizeSelectedWeeklyWithAI = summarizeSelectedWeeklyWithAI;
+window.hideWeeklyAiSummaryPreview = hideWeeklyAiSummaryPreview;
 window.clearWeeklyAiSummaryPreview = clearWeeklyAiSummaryPreview;
+window.exportAiSummarizedWeeklyExcel = exportAiSummarizedWeeklyExcel;
 window.executeWeeklySelectedExcelExport = executeWeeklySelectedExcelExport;
 
 document.addEventListener('click', (e) => {
@@ -2454,11 +2542,31 @@ document.addEventListener('click', (e) => {
     return;
   }
 
+  // เปิด/ปิด Dropdown ตัวกรองเดือน Weekly ใน Section 1
+  const sectionMonthBtn = e.target.closest('#weeklySectionMonthDropdownBtn');
+  if (sectionMonthBtn) {
+    e.preventDefault();
+    toggleWeeklyMonthDropdown(e, 'weeklySectionMonthDropdownMenu');
+    return;
+  }
+
+  // เปิด/ปิด Dropdown ตัวกรองเดือน Weekly ภายใน Modal Export
+  const modalMonthBtn = e.target.closest('#weeklyModalMonthDropdownBtn');
+  if (modalMonthBtn) {
+    e.preventDefault();
+    toggleWeeklyMonthDropdown(e, 'weeklyModalMonthDropdownMenu');
+    return;
+  }
+
   // ปิดเมนู Dropdown ตัวกรองเดือน Weekly เมื่อคลิกพื้นที่อื่น
-  const weeklyMonthWrap = document.getElementById('weeklyMonthFilterWrapper');
-  const weeklyMonthMenu = document.getElementById('weeklyMonthDropdownMenu');
-  if (weeklyMonthWrap && weeklyMonthMenu && !weeklyMonthWrap.contains(e.target)) {
-    weeklyMonthMenu.classList.add('hidden');
+  const sectionMonthMenu = document.getElementById('weeklySectionMonthDropdownMenu');
+  if (sectionMonthMenu && !sectionMonthMenu.contains(e.target)) {
+    sectionMonthMenu.classList.add('hidden');
+  }
+
+  const modalMonthMenu = document.getElementById('weeklyModalMonthDropdownMenu');
+  if (modalMonthMenu && !modalMonthMenu.contains(e.target)) {
+    modalMonthMenu.classList.add('hidden');
   }
 });
 
