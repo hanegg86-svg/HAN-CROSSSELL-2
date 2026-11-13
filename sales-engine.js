@@ -6,7 +6,7 @@
  * 2. รองรับปุ่ม "รวมข้อมูลโครงการ" (ย้ายเฉพาะยอด Actual และรายงาน Site Visit เข้าโครงการหลัก)
  * 3. รองรับปุ่ม "Backup JSON" และ "Restore JSON" แบบเลือกหมวดหมู่ได้ และประกอบไฟล์แบบแบ่งส่วน (Chunked Blob Assembly)
  * 4. เชื่อมตัวกรองรายงาน Weekly แบบเลือกได้ 1 เดือนหรือหลายเดือน (Multi-Select Month Filter) เข้ากับปุ่มใน Section 1 และ Modal Export
- * 5. เชื่อมระบบ Export รายงาน Updated Site Weekly เป็น Excel 3 คอลัมน์ และระบบสรุปรวมด้วย AI (gemini-3.5-flash-lite)
+ * 5. เพิ่มระบบ "ตารางพักรายการเตรียม Export (Export Staging Table)" และระบบ AI สรุป 2 โหมด (สรุปรวมเป็น 1 แถว / สรุปแยกตามรายโครงการ) ด้วย gemini-3.5-flash-lite
  * 6. รองรับเมนูพับเก็บได้บนหน้าจอมือถือ (toggleMobileHeaderTools)
  */
 
@@ -990,7 +990,6 @@ function getVisitMonthInfo(visit) {
 }
 
 function ensureWeeklyMonthFilterUI() {
-  // ใช้งานปุ่มตัวกรองเดือนที่มีอยู่แล้วใน index.html (#weeklySectionMonthDropdownBtn) เป็นหลัก เพื่อไม่ให้แสดงปุ่มซ้ำซ้อน
   if (document.getElementById('weeklySectionMonthDropdownBtn')) return;
 
   const section = document.getElementById('weeklySiteVisitSection');
@@ -1057,14 +1056,12 @@ function refreshWeeklyAvailableMonths(visitsList) {
     selectedWeeklyFilterMonths = new Set(allWeeklyAvailableMonths.map(m => m.key));
     weeklyMonthFilterInitialized = true;
   } else {
-    // เพิ่มเดือนใหม่ที่เพิ่งอัปโหลดเข้ามาให้อัตโนมัติหากผู้ใช้เคยเลือกทั้งหมดไว้
     const wasAllSelected = prevKeys.size > 0 && selectedWeeklyFilterMonths.size === prevKeys.size;
     allWeeklyAvailableMonths.forEach(m => {
       if (!prevKeys.has(m.key) && wasAllSelected) {
         selectedWeeklyFilterMonths.add(m.key);
       }
     });
-    // ลบ key ที่ไม่มีอยู่แล้ว
     const validNow = new Set(allWeeklyAvailableMonths.map(m => m.key));
     Array.from(selectedWeeklyFilterMonths).forEach(k => {
       if (!validNow.has(k)) selectedWeeklyFilterMonths.delete(k);
@@ -1408,92 +1405,119 @@ function ensureMergeAndBackupModalsExist() {
   if (!weeklyExportModal) {
     const wrapper = document.createElement('div');
     wrapper.innerHTML = `
-      <div id="weeklySelectExportModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-100">
-          <div class="p-5 border-b border-indigo-100 bg-indigo-50/80 flex justify-between items-center">
+      <div id="weeklySelectExportModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-2 sm:p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[92vh] flex flex-col overflow-hidden border border-slate-100">
+          <div class="p-4 sm:p-5 border-b border-indigo-100 bg-indigo-50/80 flex justify-between items-center shrink-0">
             <div class="flex items-center gap-2">
               <span class="text-xl">📋</span>
               <div>
-                <h3 class="text-base font-bold text-indigo-950">Export รายงาน Updated Site Weekly (.xlsx)</h3>
-                <p class="text-xs text-indigo-700">ตาราง 3 คอลัมน์: 1.ชื่อโครงการ | 2.สรุปการทำงานอาทิตย์ที่ผ่านมา | 3.แผนงานที่จะต้องทำต่อในสัปดาห์ต่อไป</p>
+                <h3 class="text-sm sm:text-base font-bold text-indigo-950">Export รายงาน Updated Site Weekly (.xlsx)</h3>
+                <p class="text-[11px] sm:text-xs text-indigo-700">สรุปด้วย AI หรือเลือกงานเพิ่มลง "ตารางเตรียม Export" เพื่อรวมทุกโครงการส่งออกเป็นไฟล์ Excel 3 คอลัมน์เดียว</p>
               </div>
             </div>
             <button onclick="closeWeeklySelectExportModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-full">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
             </button>
           </div>
-          <div class="p-5 overflow-y-auto space-y-3 custom-scrollbar text-xs flex-1">
-            <div class="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-2 pb-2 border-b border-slate-100">
-              <div class="flex flex-wrap items-center gap-2">
-                <input type="text" id="weeklyExportSearchInput" oninput="renderWeeklyExportItemsList()" placeholder="ค้นหาชื่อโครงการ, วันที่ หรือข้อความ..."
-                       class="text-xs px-3 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white w-full sm:w-56">
-                <div class="relative">
-                  <button id="weeklyModalMonthDropdownBtn" type="button" class="inline-flex items-center gap-1.5 bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-200 text-xs font-semibold px-2.5 py-1.5 rounded-lg shadow-sm transition-all">
-                    <span>📅</span>
-                    <span id="weeklyModalMonthDropdownLabel">เลือกเดือนทั้งหมด</span>
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-                  </button>
-                  <div id="weeklyModalMonthDropdownMenu" class="hidden absolute left-0 mt-2 w-60 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-3 space-y-2">
-                    <div class="flex justify-between items-center pb-2 border-b border-slate-100">
-                      <span class="text-xs font-bold text-slate-700">เลือกเดือน (1 หรือหลายเดือน)</span>
-                      <div class="flex gap-2">
-                        <button type="button" onclick="selectAllWeeklyMonths(true)" class="text-[11px] text-sky-600 hover:underline font-medium">เลือกทั้งหมด</button>
-                        <span class="text-slate-300">|</span>
-                        <button type="button" onclick="selectAllWeeklyMonths(false)" class="text-[11px] text-slate-500 hover:underline">ล้างค่า</button>
+          <div class="p-4 sm:p-5 overflow-y-auto space-y-4 custom-scrollbar text-xs flex-1">
+            <div class="space-y-2.5">
+              <div class="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-2 pb-2 border-b border-slate-100">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="font-bold text-slate-800">1. เลือกงานที่ต้องการ:</span>
+                  <input type="text" id="weeklyExportSearchInput" oninput="renderWeeklyExportItemsList()" placeholder="ค้นหาชื่อโครงการ, วันที่ หรือข้อความ..."
+                         class="text-xs px-3 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white w-full sm:w-52">
+                  <div class="relative">
+                    <button id="weeklyModalMonthDropdownBtn" type="button" class="inline-flex items-center gap-1.5 bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-200 text-xs font-semibold px-2.5 py-1.5 rounded-lg shadow-sm transition-all">
+                      <span>📅</span>
+                      <span id="weeklyModalMonthDropdownLabel">เลือกเดือนทั้งหมด</span>
+                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                    </button>
+                    <div id="weeklyModalMonthDropdownMenu" class="hidden absolute left-0 mt-2 w-60 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-3 space-y-2">
+                      <div class="flex justify-between items-center pb-2 border-b border-slate-100">
+                        <span class="text-xs font-bold text-slate-700">เลือกเดือน (1 หรือหลายเดือน)</span>
+                        <div class="flex gap-2">
+                          <button type="button" onclick="selectAllWeeklyMonths(true)" class="text-[11px] text-sky-600 hover:underline font-medium">เลือกทั้งหมด</button>
+                          <span class="text-slate-300">|</span>
+                          <button type="button" onclick="selectAllWeeklyMonths(false)" class="text-[11px] text-slate-500 hover:underline">ล้างค่า</button>
+                        </div>
                       </div>
+                      <div id="weeklyModalMonthCheckboxList" class="max-h-48 overflow-y-auto custom-scrollbar space-y-1.5 text-xs text-slate-700"></div>
                     </div>
-                    <div id="weeklyModalMonthCheckboxList" class="max-h-48 overflow-y-auto custom-scrollbar space-y-1.5 text-xs text-slate-700"></div>
                   </div>
                 </div>
-              </div>
-              <div class="flex items-center justify-between sm:justify-end gap-2">
-                <span id="weeklyExportSelectedCount" class="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md">เลือก 0 รายการ</span>
-                <button type="button" onclick="toggleAllWeeklyExportItems(true)" class="text-[11px] text-indigo-600 hover:underline font-semibold">เลือกทั้งหมด</button>
-                <span class="text-slate-300">|</span>
-                <button type="button" onclick="toggleAllWeeklyExportItems(false)" class="text-[11px] text-slate-500 hover:underline">ล้างการเลือก</button>
-              </div>
-            </div>
-            <div id="weeklyExportItemsList" class="space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-0.5">
-              <div class="text-slate-400 text-center py-6">กำลังโหลดรายการรายงานหน้างาน...</div>
-            </div>
-            <div id="weeklyAiSummaryPreviewBox" class="hidden p-4 rounded-xl bg-purple-50/70 border border-purple-200 space-y-3">
-              <div class="flex justify-between items-center">
-                <span class="font-bold text-purple-950 flex items-center gap-1.5">
-                  <span>✨</span> ผลสรุปรวมข้อความจาก AI (gemini-3.5-flash-lite) — แก้ไขข้อความก่อน Export ได้
-                </span>
-                <button type="button" onclick="hideWeeklyAiSummaryPreview()" class="text-[11px] text-slate-500 hover:text-rose-600 hover:underline">ปิดกล่องสรุป AI</button>
-              </div>
-              <div>
-                <label class="block font-semibold text-slate-700 mb-1">1. ชื่อโครงการ:</label>
-                <input type="text" id="aiWeeklyProjectInput" class="w-full px-3 py-1.5 border border-purple-200 rounded-lg bg-white text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-purple-500">
-              </div>
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label class="block font-semibold text-slate-700 mb-1">2. สรุปการทำงานอาทิตย์ที่ผ่านมา:</label>
-                  <textarea id="aiWeeklyPastWorkTextarea" rows="4" class="w-full px-3 py-2 border border-purple-200 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500 leading-relaxed"></textarea>
-                </div>
-                <div>
-                  <label class="block font-semibold text-slate-700 mb-1">3. แผนงานที่จะต้องทำต่อในสัปดาห์ต่อไป:</label>
-                  <textarea id="aiWeeklyNextPlanTextarea" rows="4" class="w-full px-3 py-2 border border-purple-200 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500 leading-relaxed"></textarea>
+                <div class="flex items-center justify-between sm:justify-end gap-2">
+                  <span id="weeklyExportSelectedCount" class="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md">เลือก 0 รายการ</span>
+                  <button type="button" onclick="toggleAllWeeklyExportItems(true)" class="text-[11px] text-indigo-600 hover:underline font-semibold">เลือกทั้งหมด</button>
+                  <span class="text-slate-300">|</span>
+                  <button type="button" onclick="toggleAllWeeklyExportItems(false)" class="text-[11px] text-slate-500 hover:underline">ล้างการเลือก</button>
                 </div>
               </div>
-              <div class="flex justify-end">
-                <button type="button" onclick="exportAiSummarizedWeeklyExcel()" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-1.5">
-                  <span>📥</span> Export Excel จากผลสรุป AI (1 แถวรวม)
+              <div id="weeklyExportItemsList" class="space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-0.5">
+                <div class="text-slate-400 text-center py-6">กำลังโหลดรายการรายงานหน้างาน...</div>
+              </div>
+              <div class="flex flex-wrap items-center gap-2 pt-1">
+                <button id="aiSummarizeWeeklyBtn" type="button" onclick="summarizeSelectedWeeklyWithAI('single')" class="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-1.5">
+                  <span>🤖</span> <span>ให้ AI สรุปรวมเป็น 1 แถว</span>
+                </button>
+                <button id="aiSummarizeByProjectBtn" type="button" onclick="summarizeSelectedWeeklyWithAI('by_project')" class="px-3 py-1.5 bg-fuchsia-600 hover:bg-fuchsia-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-1.5">
+                  <span>🏢</span> <span>ให้ AI สรุปแยกตามรายโครงการ</span>
+                </button>
+                <button type="button" onclick="addSelectedItemsRawToStaging()" class="px-3 py-1.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-1.5">
+                  <span>➕</span> <span>เพิ่มงานที่เลือกลงตาราง (แยกแถว)</span>
                 </button>
               </div>
             </div>
+            <div id="weeklyAiSummaryPreviewBox" class="hidden p-4 rounded-xl bg-purple-50/80 border border-purple-200 space-y-3">
+              <div class="flex flex-wrap justify-between items-center gap-2">
+                <span class="font-bold text-purple-950 flex items-center gap-1.5">
+                  <span>✨</span> <span id="weeklyAiPreviewTitle">ผลสรุปจาก AI (gemini-3.5-flash-lite) — แก้ไขข้อความก่อนเพิ่มลงตารางได้</span>
+                </span>
+                <button type="button" onclick="hideWeeklyAiSummaryPreview()" class="text-[11px] text-slate-500 hover:text-rose-600 hover:underline">ปิดกล่องสรุป AI</button>
+              </div>
+              <div id="aiWeeklyPreviewRowsContainer" class="space-y-3 max-h-56 overflow-y-auto custom-scrollbar pr-1"></div>
+              <div class="flex justify-end pt-1 border-t border-purple-200/70">
+                <button type="button" onclick="commitAiPreviewToStaging()" class="px-4 py-2 bg-purple-700 hover:bg-purple-800 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-1.5">
+                  <span>✅</span> <span>เพิ่มผลสรุป AI นี้ลงตารางเตรียม Export</span>
+                </button>
+              </div>
+            </div>
+            <div id="weeklyStagingSection" class="border border-emerald-200 rounded-xl overflow-hidden bg-emerald-50/30">
+              <div class="px-4 py-2.5 bg-emerald-50 border-b border-emerald-200 flex flex-wrap justify-between items-center gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="font-bold text-emerald-950">2. ตารางเตรียม Export (รวมผลสรุป AI และงานอื่นๆ ในไฟล์เดียว):</span>
+                  <span id="weeklyStagingCountBadge" class="bg-emerald-600 text-white text-[11px] font-bold px-2 py-0.5 rounded-full">0 แถว</span>
+                </div>
+                <button type="button" onclick="clearWeeklyStagingTable()" class="text-[11px] text-rose-600 hover:underline font-semibold">ล้างตารางทั้งหมด</button>
+              </div>
+              <div class="overflow-x-auto custom-scrollbar max-h-56 bg-white">
+                <table class="w-full text-left text-xs border-collapse">
+                  <thead class="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200 sticky top-0 z-10">
+                    <tr>
+                      <th class="py-2 px-3 w-1/4">1. ชื่อโครงการ</th>
+                      <th class="py-2 px-3 w-1/3">2. สรุปการทำงานอาทิตย์ที่ผ่านมา</th>
+                      <th class="py-2 px-3 w-1/3">3. แผนงานที่จะต้องทำต่อในสัปดาห์ต่อไป</th>
+                      <th class="py-2 px-2 text-center w-14">จัดการ</th>
+                    </tr>
+                  </thead>
+                  <tbody id="weeklyStagingTableBody" class="divide-y divide-slate-100">
+                    <tr>
+                      <td colspan="4" class="py-6 text-center text-slate-400">ยังไม่มีรายการในตารางเตรียม Export — เลือกงานด้านบนแล้วกดปุ่มสรุปด้วย AI หรือเพิ่มงานลงตารางได้เลย</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
-          <div class="p-4 border-t border-slate-100 bg-slate-50 flex flex-wrap justify-between items-center gap-2">
-            <button id="aiSummarizeWeeklyBtn" type="button" onclick="summarizeSelectedWeeklyWithAI()" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-1.5">
-              <span>🤖</span> ให้ AI สรุปรวมข้อความ (gemini-3.5-flash-lite)
-            </button>
-            <div class="flex gap-2">
+          <div class="p-3.5 sm:p-4 border-t border-slate-200 bg-slate-50 flex flex-wrap justify-between items-center gap-2 shrink-0">
+            <span id="weeklyFooterReadyHint" class="text-[11px] text-slate-600 font-medium">
+              พร้อมส่งออก Excel 3 คอลัมน์: <strong class="text-emerald-700">0 แถว</strong>
+            </span>
+            <div class="flex items-center gap-2 ml-auto">
               <button onclick="closeWeeklySelectExportModal()" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded-lg transition-colors">
-                ยกเลิก
+                ปิดหน้าต่าง
               </button>
-              <button onclick="executeWeeklySelectedExcelExport()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-1.5">
-                <span>📥</span> Export Excel ที่เลือก (แยกแถว)
+              <button id="mainExportWeeklyExcelBtn" type="button" onclick="executeWeeklyStagingExcelExport()" class="px-4 sm:px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-1.5">
+                <span>📥</span> <span>Export Excel ทั้งหมด (<span id="weeklyFooterExportCount">0</span> แถว)</span>
               </button>
             </div>
           </div>
@@ -1508,10 +1532,12 @@ function ensureMergeAndBackupModalsExist() {
 }
 
 // ==========================================
-// Weekly Site Update Select & Export Excel (3 Columns + AI Summarizer)
+// Weekly Site Update Select, AI Summarizer (1 แถว / แยกโครงการ) & Export Staging Table
 // ==========================================
 let weeklyExportCandidatesCache = [];
 let weeklyExportSelectedIds = new Set();
+let weeklyAiPreviewDraftRows = []; // [{ projectCol, lastWeekCol, nextWeekCol }]
+let weeklyStagingRows = []; // [{ sourceType, projectCol, lastWeekCol, nextWeekCol }]
 
 function buildWeeklyThreeColumnsData(visit) {
   const projectCol = `${visit.projectName || 'ไม่ระบุชื่อโครงการ'}${visit.projectId && visit.projectId !== '-' ? ` (${visit.projectId})` : ''}`;
@@ -1557,6 +1583,7 @@ function buildWeeklyThreeColumnsData(visit) {
 function hideWeeklyAiSummaryPreview() {
   const previewBox = document.getElementById('weeklyAiSummaryPreviewBox');
   if (previewBox) previewBox.classList.add('hidden');
+  weeklyAiPreviewDraftRows = [];
 }
 
 const clearWeeklyAiSummaryPreview = hideWeeklyAiSummaryPreview;
@@ -1598,6 +1625,7 @@ async function openWeeklySelectExportModal() {
 
     hideWeeklyAiSummaryPreview();
     renderWeeklyExportItemsList();
+    renderWeeklyStagingTable();
     modal.classList.remove('hidden');
   } catch (err) {
     alert('เกิดข้อผิดพลาดในการโหลดรายการรายงานหน้างาน: ' + err.message);
@@ -1616,14 +1644,6 @@ function updateWeeklyExportSelectedCount() {
   if (el) {
     el.textContent = `เลือก ${weeklyExportSelectedIds.size} จาก ${weeklyExportCandidatesCache.length} รายการ`;
   }
-  const aiBtn = document.getElementById('aiSummarizeWeeklyBtn');
-  if (aiBtn) {
-    if (weeklyExportSelectedIds.size >= 2) {
-      aiBtn.classList.remove('opacity-60');
-    } else {
-      aiBtn.classList.add('opacity-60');
-    }
-  }
 }
 
 function toggleSingleWeeklyExportItem(itemId, isChecked) {
@@ -1632,7 +1652,6 @@ function toggleSingleWeeklyExportItem(itemId, isChecked) {
   } else {
     weeklyExportSelectedIds.delete(String(itemId));
   }
-  hideWeeklyAiSummaryPreview();
   updateWeeklyExportSelectedCount();
 }
 
@@ -1654,7 +1673,6 @@ function toggleAllWeeklyExportItems(shouldSelect) {
       }
     }
   });
-  hideWeeklyAiSummaryPreview();
   renderWeeklyExportItemsList();
 }
 
@@ -1663,7 +1681,7 @@ function renderWeeklyExportItemsList() {
   if (!container) return;
 
   if (!weeklyExportCandidatesCache || weeklyExportCandidatesCache.length === 0) {
-    container.innerHTML = `<div class="text-slate-400 text-center py-8 bg-slate-50 rounded-xl border border-slate-100">ไม่พบรายการรายงานหน้างานตามตัวกรองโครงการและเดือนที่เลือก</div>`;
+    container.innerHTML = `<div class="text-slate-400 text-center py-6 bg-slate-50 rounded-xl border border-slate-100">ไม่พบรายการรายงานหน้างานตามตัวกรองโครงการและเดือนที่เลือก</div>`;
     updateWeeklyExportSelectedCount();
     return;
   }
@@ -1683,7 +1701,7 @@ function renderWeeklyExportItemsList() {
     });
 
   if (visibleItems.length === 0) {
-    container.innerHTML = `<div class="text-slate-400 text-center py-6 bg-slate-50 rounded-xl border border-slate-100">ไม่พบรายการตามคำค้นหา</div>`;
+    container.innerHTML = `<div class="text-slate-400 text-center py-5 bg-slate-50 rounded-xl border border-slate-100">ไม่พบรายการตามคำค้นหา</div>`;
     updateWeeklyExportSelectedCount();
     return;
   }
@@ -1693,20 +1711,20 @@ function renderWeeklyExportItemsList() {
     const jsId = escapeJsString(idStr);
 
     return `
-      <label class="flex items-start gap-2.5 p-3 rounded-xl bg-white hover:bg-indigo-50/40 border ${isChecked ? 'border-indigo-300 bg-indigo-50/20' : 'border-slate-200'} cursor-pointer transition-colors">
+      <label class="flex items-start gap-2.5 p-2.5 rounded-xl bg-white hover:bg-indigo-50/40 border ${isChecked ? 'border-indigo-300 bg-indigo-50/20' : 'border-slate-200'} cursor-pointer transition-colors">
         <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleSingleWeeklyExportItem('${jsId}', this.checked)"
                class="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4 shrink-0">
-        <div class="min-w-0 flex-1 space-y-1">
+        <div class="min-w-0 flex-1 space-y-0.5">
           <div class="flex flex-wrap items-center justify-between gap-1">
             <span class="font-bold text-slate-900 truncate">${escapeHtml(cols.projectCol)}</span>
             <span class="text-[10px] font-mono bg-sky-50 text-sky-700 border border-sky-200 px-2 py-0.5 rounded-md shrink-0">
               ${escapeHtml(v.visitDate || '-')}
             </span>
           </div>
-          <div class="text-[11px] text-slate-600 whitespace-pre-line line-clamp-2 leading-relaxed">
+          <div class="text-[11px] text-slate-600 whitespace-pre-line line-clamp-1 leading-relaxed">
             <span class="font-semibold text-slate-700">อาทิตย์ที่ผ่านมา:</span> ${escapeHtml(cols.lastWeekCol)}
           </div>
-          <div class="text-[11px] text-indigo-700 whitespace-pre-line line-clamp-2 leading-relaxed">
+          <div class="text-[11px] text-indigo-700 whitespace-pre-line line-clamp-1 leading-relaxed">
             <span class="font-semibold">แผนสัปดาห์ต่อไป:</span> ${escapeHtml(cols.nextWeekCol)}
           </div>
         </div>
@@ -1717,14 +1735,19 @@ function renderWeeklyExportItemsList() {
   updateWeeklyExportSelectedCount();
 }
 
-async function summarizeSelectedWeeklyWithAI() {
+/**
+ * ให้ AI (gemini-3.5-flash-lite) สรุปรายการที่เลือกได้ 2 โหมด:
+ * - mode === 'single': รวมทุกรายการที่เลือกเป็น 1 แถวเดียว
+ * - mode === 'by_project': จัดกลุ่มและสรุปรวมแยกทีละโครงการ (ได้แถวละ 1 โครงการ)
+ */
+async function summarizeSelectedWeeklyWithAI(mode = 'single') {
   const selectedItems = weeklyExportCandidatesCache.filter((v, idx) => {
     const idStr = String(v.id !== undefined ? v.id : idx);
     return weeklyExportSelectedIds.has(idStr);
   });
 
-  if (selectedItems.length < 2) {
-    alert('กรุณาเลือกรายการรายงานหน้างานอย่างน้อย 2 รายการขึ้นไป เพื่อให้ AI สรุปรวมเป็นชุดเดียว');
+  if (selectedItems.length === 0) {
+    alert('กรุณาเลือกรายการรายงานหน้างานอย่างน้อย 1 รายการก่อนกดให้ AI สรุป');
     return;
   }
 
@@ -1739,11 +1762,17 @@ async function summarizeSelectedWeeklyWithAI() {
     return;
   }
 
-  const aiBtn = document.getElementById('aiSummarizeWeeklyBtn');
-  const origBtnHtml = aiBtn ? aiBtn.innerHTML : '';
-  if (aiBtn) {
-    aiBtn.disabled = true;
-    aiBtn.innerHTML = `<svg class="animate-spin h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg> <span>กำลังสรุปด้วย gemini-3.5-flash-lite...</span>`;
+  const singleBtn = document.getElementById('aiSummarizeWeeklyBtn');
+  const byProjBtn = document.getElementById('aiSummarizeByProjectBtn');
+  const origSingleHtml = singleBtn ? singleBtn.innerHTML : '';
+  const origByProjHtml = byProjBtn ? byProjBtn.innerHTML : '';
+
+  if (singleBtn) singleBtn.disabled = true;
+  if (byProjBtn) byProjBtn.disabled = true;
+
+  const activeBtn = mode === 'by_project' ? byProjBtn : singleBtn;
+  if (activeBtn) {
+    activeBtn.innerHTML = `<svg class="animate-spin h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg> <span>กำลังสรุปด้วย gemini-3.5-flash-lite...</span>`;
   }
 
   try {
@@ -1752,16 +1781,31 @@ async function summarizeSelectedWeeklyWithAI() {
       return `[รายการที่ ${i + 1}]\nชื่อโครงการ: ${cols.projectCol}\nสรุปการทำงานอาทิตย์ที่ผ่านมา:\n${cols.lastWeekCol}\nแผนงานสัปดาห์ต่อไป:\n${cols.nextWeekCol}`;
     }).join('\n\n---\n\n');
 
-    const promptText = `คุณคือผู้ช่วยฝ่ายขายโครงการก่อสร้าง (SCG B2B Sales) จงสรุปและเรียบเรียงข้อมูลรายงานหน้างานต่อไปนี้ที่ผู้ใช้เลือกมาจำนวน ${selectedItems.length} รายการ ให้รวมเป็นสรุปชุดเดียวที่กระชับ ชัดเจน ตัดข้อความที่ซ้ำซ้อนออก และแบ่งออกเป็น 3 ส่วนสำหรับลงตาราง Excel:
-1. "projectName": ชื่อโครงการ (หากเป็นโครงการเดียวกันให้ใช้ชื่อหลักชื่อเดียว หากมีหลายโครงการให้ระบุรวมกันอย่างกระชับ)
+    let promptText = '';
+    if (mode === 'by_project') {
+      promptText = `คุณคือผู้ช่วยฝ่ายขายโครงการก่อสร้าง (SCG B2B Sales) จงจัดกลุ่มและสรุปข้อมูลรายงานหน้างานต่อไปนี้จำนวน ${selectedItems.length} รายการ โดย "แยกสรุปทีละโครงการ" (หากมีหลายรายการที่เป็นโครงการเดียวกัน ให้ยุบรวมเป็น 1 รายการของโครงการนั้น และตัดข้อความที่ซ้ำซ้อนออก)
+แต่ละโครงการให้แบ่งออกเป็น 3 ส่วนสำหรับลงตาราง Excel:
+1. "projectName": ชื่อโครงการ (พร้อมรหัสโครงการถ้ามี)
+2. "lastWeekSummary": สรุปการทำงานอาทิตย์ที่ผ่านมาของโครงการนั้น (ความคืบหน้า การใช้งานสินค้า วันที่ตรวจ และปัญหา/ความเสี่ยง)
+3. "nextWeekPlan": แผนงานที่จะต้องทำต่อในสัปดาห์ต่อไปของโครงการนั้น (แผนเรียกสินค้า และสิ่งที่ต้องติดตามต่อ)
+
+ตอบกลับเป็น JSON Object เท่านั้น ตามรูปแบบนี้:
+{"rows": [{"projectName": "...", "lastWeekSummary": "...", "nextWeekPlan": "..."}]}
+
+ข้อมูลรายงานที่เลือก:
+${combinedRawText}`;
+    } else {
+      promptText = `คุณคือผู้ช่วยฝ่ายขายโครงการก่อสร้าง (SCG B2B Sales) จงสรุปและเรียบเรียงข้อมูลรายงานหน้างานต่อไปนี้ที่ผู้ใช้เลือกมาจำนวน ${selectedItems.length} รายการ ให้รวมเป็นสรุปชุดเดียวที่กระชับ ชัดเจน ตัดข้อความที่ซ้ำซ้อนออก และแบ่งออกเป็น 3 ส่วนสำหรับลงตาราง Excel:
+1. "projectName": ชื่อโครงการ (หากเป็นโครงการเดียวกันให้ใช้ชื่อหลักชื่อเดียว พร้อมรหัสโครงการถ้ามี หากมีหลายโครงการให้ระบุรวมกันอย่างกระชับ)
 2. "lastWeekSummary": สรุปการทำงานอาทิตย์ที่ผ่านมา (รวมความคืบหน้าหน้างาน การใช้งานสินค้า วันที่ตรวจ และปัญหา/ความเสี่ยงที่พบ)
 3. "nextWeekPlan": แผนงานที่จะต้องทำต่อในสัปดาห์ต่อไป (รวมแผนเรียกสินค้า และสิ่งที่ต้องติดตามต่อ)
 
 ตอบกลับเป็น JSON Object เท่านั้น ตามรูปแบบนี้:
-{"projectName": "...", "lastWeekSummary": "...", "nextWeekPlan": "..."}
+{"rows": [{"projectName": "...", "lastWeekSummary": "...", "nextWeekPlan": "..."}]}
 
 ข้อมูลรายงานที่เลือก:
 ${combinedRawText}`;
+    }
 
     // บังคับใช้โมเดล gemini-3.5-flash-lite เท่านั้น
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${encodeURIComponent(activeKey)}`;
@@ -1787,65 +1831,261 @@ ${combinedRawText}`;
     const cleanedJsonStr = rawReply.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
     const parsedSummary = JSON.parse(cleanedJsonStr);
 
-    const previewBox = document.getElementById('weeklyAiSummaryPreviewBox');
-    const elProj = document.getElementById('aiWeeklyProjectInput');
-    const elLast = document.getElementById('aiWeeklyPastWorkTextarea');
-    const elNext = document.getElementById('aiWeeklyNextPlanTextarea');
+    let rawRows = [];
+    if (Array.isArray(parsedSummary)) {
+      rawRows = parsedSummary;
+    } else if (parsedSummary && Array.isArray(parsedSummary.rows)) {
+      rawRows = parsedSummary.rows;
+    } else if (parsedSummary && typeof parsedSummary === 'object') {
+      rawRows = [parsedSummary];
+    }
 
-    if (elProj) elProj.value = parsedSummary.projectName || '';
-    if (elLast) elLast.value = parsedSummary.lastWeekSummary || '';
-    if (elNext) elNext.value = parsedSummary.nextWeekPlan || '';
-    if (previewBox) previewBox.classList.remove('hidden');
+    weeklyAiPreviewDraftRows = rawRows.map(r => ({
+      projectCol: String(r.projectName || r.projectCol || '-').trim(),
+      lastWeekCol: String(r.lastWeekSummary || r.lastWeekCol || '-').trim(),
+      nextWeekCol: String(r.nextWeekPlan || r.nextWeekCol || '-').trim()
+    }));
+
+    const titleEl = document.getElementById('weeklyAiPreviewTitle');
+    if (titleEl) {
+      titleEl.textContent = mode === 'by_project'
+        ? `ผลสรุปแยกตามรายโครงการจาก AI (${weeklyAiPreviewDraftRows.length} โครงการ) — แก้ไขข้อความก่อนเพิ่มลงตารางได้`
+        : 'ผลสรุปรวมเป็น 1 แถวจาก AI (gemini-3.5-flash-lite) — แก้ไขข้อความก่อนเพิ่มลงตารางได้';
+    }
+
+    renderWeeklyAiPreviewRows();
+    const previewBox = document.getElementById('weeklyAiSummaryPreviewBox');
+    if (previewBox) {
+      previewBox.classList.remove('hidden');
+      previewBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
   } catch (err) {
     alert('เกิดข้อผิดพลาดในการสรุปข้อความด้วย AI: ' + err.message);
   } finally {
-    if (aiBtn) {
-      aiBtn.disabled = false;
-      aiBtn.innerHTML = origBtnHtml;
+    if (singleBtn) {
+      singleBtn.disabled = false;
+      singleBtn.innerHTML = origSingleHtml;
+    }
+    if (byProjBtn) {
+      byProjBtn.disabled = false;
+      byProjBtn.innerHTML = origByProjHtml;
     }
   }
 }
 
-function exportAiSummarizedWeeklyExcel() {
-  const projectVal = (document.getElementById('aiWeeklyProjectInput')?.value || '').trim() || '-';
-  const lastWeekVal = (document.getElementById('aiWeeklyPastWorkTextarea')?.value || '').trim() || '-';
-  const nextWeekVal = (document.getElementById('aiWeeklyNextPlanTextarea')?.value || '').trim() || '-';
+function renderWeeklyAiPreviewRows() {
+  const container = document.getElementById('aiWeeklyPreviewRowsContainer');
+  if (!container) return;
 
-  const excelRows = [{
-    "ชื่อโครงการ": projectVal,
-    "สรุปการทำงานอาทิตย์ที่ผ่านมา": lastWeekVal,
-    "แผนงานที่จะต้องทำต่อในสัปดาห์ต่อไป": nextWeekVal
-  }];
+  if (!weeklyAiPreviewDraftRows || weeklyAiPreviewDraftRows.length === 0) {
+    container.innerHTML = '';
+    return;
+  }
 
-  const ws = XLSX.utils.json_to_sheet(excelRows);
-  ws['!cols'] = [{ wch: 38 }, { wch: 65 }, { wch: 65 }];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Weekly_Site_Update_AI');
-  XLSX.writeFile(wb, `Weekly_Site_Update_AI_${new Date().toISOString().slice(0, 10)}.xlsx`);
-
-  closeWeeklySelectExportModal();
+  container.innerHTML = weeklyAiPreviewDraftRows.map((row, idx) => `
+    <div class="p-3 rounded-xl bg-white border border-purple-200 shadow-sm space-y-2">
+      <div class="flex items-center justify-between gap-2">
+        <span class="text-[11px] font-bold text-purple-800">รายการสรุป AI #${idx + 1}</span>
+        ${weeklyAiPreviewDraftRows.length > 1 ? `
+          <button type="button" onclick="removeAiPreviewDraftRow(${idx})" class="text-[11px] text-rose-500 hover:text-rose-700 hover:underline font-semibold">
+            ลบรายการนี้
+          </button>
+        ` : ''}
+      </div>
+      <div>
+        <label class="block font-semibold text-slate-700 mb-0.5">1. ชื่อโครงการ:</label>
+        <input type="text" value="${escapeHtml(row.projectCol)}"
+               oninput="updateAiPreviewDraftField(${idx}, 'projectCol', this.value)"
+               class="w-full px-2.5 py-1.5 border border-purple-200 rounded-lg bg-white text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-purple-500">
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <div>
+          <label class="block font-semibold text-slate-700 mb-0.5">2. สรุปการทำงานอาทิตย์ที่ผ่านมา:</label>
+          <textarea rows="3" oninput="updateAiPreviewDraftField(${idx}, 'lastWeekCol', this.value)"
+                    class="w-full px-2.5 py-1.5 border border-purple-200 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500 leading-relaxed">${escapeHtml(row.lastWeekCol)}</textarea>
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-700 mb-0.5">3. แผนงานที่จะต้องทำต่อในสัปดาห์ต่อไป:</label>
+          <textarea rows="3" oninput="updateAiPreviewDraftField(${idx}, 'nextWeekCol', this.value)"
+                    class="w-full px-2.5 py-1.5 border border-purple-200 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500 leading-relaxed">${escapeHtml(row.nextWeekCol)}</textarea>
+        </div>
+      </div>
+    </div>
+  `).join('');
 }
 
-function executeWeeklySelectedExcelExport() {
+function updateAiPreviewDraftField(idx, field, value) {
+  if (weeklyAiPreviewDraftRows[idx]) {
+    weeklyAiPreviewDraftRows[idx][field] = value;
+  }
+}
+
+function removeAiPreviewDraftRow(idx) {
+  weeklyAiPreviewDraftRows.splice(idx, 1);
+  if (weeklyAiPreviewDraftRows.length === 0) {
+    hideWeeklyAiSummaryPreview();
+  } else {
+    renderWeeklyAiPreviewRows();
+  }
+}
+
+function commitAiPreviewToStaging() {
+  if (!weeklyAiPreviewDraftRows || weeklyAiPreviewDraftRows.length === 0) return;
+
+  weeklyAiPreviewDraftRows.forEach(draft => {
+    weeklyStagingRows.push({
+      sourceType: 'AI สรุป',
+      projectCol: (draft.projectCol || '').trim() || '-',
+      lastWeekCol: (draft.lastWeekCol || '').trim() || '-',
+      nextWeekCol: (draft.nextWeekCol || '').trim() || '-'
+    });
+  });
+
+  hideWeeklyAiSummaryPreview();
+  // ล้างการติ๊กด้านบนเพื่อให้ผู้ใช้เลือกกลุ่มงานหรือโครงการถัดไปได้สะดวก
+  weeklyExportSelectedIds.clear();
+  renderWeeklyExportItemsList();
+  renderWeeklyStagingTable();
+
+  const stagingSec = document.getElementById('weeklyStagingSection');
+  if (stagingSec) {
+    stagingSec.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+}
+
+function addSelectedItemsRawToStaging() {
   const selectedItems = weeklyExportCandidatesCache.filter((v, idx) => {
     const idStr = String(v.id !== undefined ? v.id : idx);
     return weeklyExportSelectedIds.has(idStr);
   });
 
   if (selectedItems.length === 0) {
-    alert('กรุณาเลือกงานอัปเดตอย่างน้อย 1 รายการก่อนกด Export');
+    alert('กรุณาติ๊กเลือกรายการงานด้านบนอย่างน้อย 1 รายการก่อนกดเพิ่มลงตาราง');
     return;
   }
 
-  // ตาราง Excel 3 คอลัมน์ตามที่กำหนด
-  const excelRows = selectedItems.map(v => {
+  selectedItems.forEach(v => {
     const cols = buildWeeklyThreeColumnsData(v);
-    return {
-      "ชื่อโครงการ": cols.projectCol,
-      "สรุปการทำงานอาทิตย์ที่ผ่านมา": cols.lastWeekCol,
-      "แผนงานที่จะต้องทำต่อในสัปดาห์ต่อไป": cols.nextWeekCol
-    };
+    weeklyStagingRows.push({
+      sourceType: 'รายการปกติ',
+      projectCol: cols.projectCol,
+      lastWeekCol: cols.lastWeekCol,
+      nextWeekCol: cols.nextWeekCol
+    });
   });
+
+  weeklyExportSelectedIds.clear();
+  renderWeeklyExportItemsList();
+  renderWeeklyStagingTable();
+
+  const stagingSec = document.getElementById('weeklyStagingSection');
+  if (stagingSec) {
+    stagingSec.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+}
+
+function renderWeeklyStagingTable() {
+  const tbody = document.getElementById('weeklyStagingTableBody');
+  const countBadge = document.getElementById('weeklyStagingCountBadge');
+  const footerHint = document.getElementById('weeklyFooterReadyHint');
+  const footerCount = document.getElementById('weeklyFooterExportCount');
+
+  const total = weeklyStagingRows.length;
+  if (countBadge) countBadge.textContent = `${total} แถว`;
+  if (footerCount) footerCount.textContent = String(total);
+  if (footerHint) {
+    footerHint.innerHTML = `พร้อมส่งออก Excel 3 คอลัมน์: <strong class="text-emerald-700">${total} แถว</strong>`;
+  }
+
+  if (!tbody) return;
+
+  if (total === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="4" class="py-6 text-center text-slate-400">
+          ยังไม่มีรายการในตารางเตรียม Export — เลือกงานด้านบนแล้วกดปุ่มสรุปด้วย AI หรือเพิ่มงานลงตารางได้เลย
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = weeklyStagingRows.map((row, idx) => {
+    const badgeHtml = row.sourceType === 'AI สรุป'
+      ? `<span class="inline-block bg-purple-100 text-purple-800 text-[10px] font-bold px-1.5 py-0.5 rounded mb-1">✨ AI สรุป</span>`
+      : `<span class="inline-block bg-sky-100 text-sky-800 text-[10px] font-bold px-1.5 py-0.5 rounded mb-1">📋 รายการปกติ</span>`;
+
+    return `
+      <tr class="hover:bg-emerald-50/30 align-top">
+        <td class="p-2 border-r border-slate-100">
+          ${badgeHtml}
+          <textarea rows="3" oninput="updateWeeklyStagingCell(${idx}, 'projectCol', this.value)"
+                    class="w-full px-2 py-1 border border-slate-200 rounded bg-white text-slate-800 font-medium focus:outline-none focus:ring-1 focus:ring-emerald-500 text-[11px] leading-snug">${escapeHtml(row.projectCol)}</textarea>
+        </td>
+        <td class="p-2 border-r border-slate-100">
+          <textarea rows="4" oninput="updateWeeklyStagingCell(${idx}, 'lastWeekCol', this.value)"
+                    class="w-full px-2 py-1 border border-slate-200 rounded bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-500 text-[11px] leading-snug">${escapeHtml(row.lastWeekCol)}</textarea>
+        </td>
+        <td class="p-2 border-r border-slate-100">
+          <textarea rows="4" oninput="updateWeeklyStagingCell(${idx}, 'nextWeekCol', this.value)"
+                    class="w-full px-2 py-1 border border-slate-200 rounded bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-500 text-[11px] leading-snug">${escapeHtml(row.nextWeekCol)}</textarea>
+        </td>
+        <td class="p-2 text-center align-middle">
+          <button type="button" onclick="removeWeeklyStagingRow(${idx})" title="ลบแถวนี้"
+                  class="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors">
+            🗑️
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function updateWeeklyStagingCell(idx, field, value) {
+  if (weeklyStagingRows[idx]) {
+    weeklyStagingRows[idx][field] = value;
+  }
+}
+
+function removeWeeklyStagingRow(idx) {
+  weeklyStagingRows.splice(idx, 1);
+  renderWeeklyStagingTable();
+}
+
+function clearWeeklyStagingTable() {
+  if (weeklyStagingRows.length === 0) return;
+  if (!confirm('ต้องการล้างรายการทั้งหมดในตารางเตรียม Export ใช่หรือไม่?')) return;
+  weeklyStagingRows = [];
+  renderWeeklyStagingTable();
+}
+
+function executeWeeklyStagingExcelExport() {
+  let rowsToExport = weeklyStagingRows;
+
+  // กรณียังไม่ได้กดเพิ่มลงตารางเตรียม Export แต่มีรายการที่ติ๊กเลือกไว้ด้านบน ให้ถามยืนยันส่งออกโดยตรงได้ทันที
+  if (!rowsToExport || rowsToExport.length === 0) {
+    const checkedItems = weeklyExportCandidatesCache.filter((v, idx) => {
+      const idStr = String(v.id !== undefined ? v.id : idx);
+      return weeklyExportSelectedIds.has(idStr);
+    });
+
+    if (checkedItems.length > 0) {
+      const proceedDirect = confirm(
+        `ตารางเตรียม Export ด้านล่างยังว่างอยู่ (0 แถว)\nต้องการส่งออกรายการที่ติ๊กเลือกไว้ด้านบนจำนวน ${checkedItems.length} รายการ (แบบแยกแถว) ทันทีเลยหรือไม่?`
+      );
+      if (!proceedDirect) return;
+      rowsToExport = checkedItems.map(v => buildWeeklyThreeColumnsData(v));
+    } else {
+      alert('ยังไม่มีรายการสำหรับ Export กรุณาเลือกงานด้านบนแล้วกดสรุปด้วย AI หรือเพิ่มลงตารางเตรียม Export ก่อน');
+      return;
+    }
+  }
+
+  const excelRows = rowsToExport.map(r => ({
+    "ชื่อโครงการ": (r.projectCol || '').trim() || '-',
+    "สรุปการทำงานอาทิตย์ที่ผ่านมา": (r.lastWeekCol || '').trim() || '-',
+    "แผนงานที่จะต้องทำต่อในสัปดาห์ต่อไป": (r.nextWeekCol || '').trim() || '-'
+  }));
 
   const ws = XLSX.utils.json_to_sheet(excelRows);
   ws['!cols'] = [{ wch: 38 }, { wch: 65 }, { wch: 65 }];
@@ -1855,6 +2095,8 @@ function executeWeeklySelectedExcelExport() {
 
   closeWeeklySelectExportModal();
 }
+
+const executeWeeklySelectedExcelExport = executeWeeklyStagingExcelExport;
 
 // ==========================================
 // Merge Projects Feature (เฉพาะ Actual และ Report Site Visit)
@@ -2519,7 +2761,15 @@ window.renderWeeklyExportItemsList = renderWeeklyExportItemsList;
 window.summarizeSelectedWeeklyWithAI = summarizeSelectedWeeklyWithAI;
 window.hideWeeklyAiSummaryPreview = hideWeeklyAiSummaryPreview;
 window.clearWeeklyAiSummaryPreview = clearWeeklyAiSummaryPreview;
-window.exportAiSummarizedWeeklyExcel = exportAiSummarizedWeeklyExcel;
+window.updateAiPreviewDraftField = updateAiPreviewDraftField;
+window.removeAiPreviewDraftRow = removeAiPreviewDraftRow;
+window.commitAiPreviewToStaging = commitAiPreviewToStaging;
+window.addSelectedItemsRawToStaging = addSelectedItemsRawToStaging;
+window.renderWeeklyStagingTable = renderWeeklyStagingTable;
+window.updateWeeklyStagingCell = updateWeeklyStagingCell;
+window.removeWeeklyStagingRow = removeWeeklyStagingRow;
+window.clearWeeklyStagingTable = clearWeeklyStagingTable;
+window.executeWeeklyStagingExcelExport = executeWeeklyStagingExcelExport;
 window.executeWeeklySelectedExcelExport = executeWeeklySelectedExcelExport;
 
 document.addEventListener('click', (e) => {
