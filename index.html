@@ -25,82 +25,94 @@
   <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen">
-  <!-- Header -->
-  <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-      <div class="flex items-center gap-3">
-        <img src="icon.png" alt="App Icon" class="w-10 h-10 rounded-xl shadow-sm object-cover border border-slate-100" onerror="this.style.display='none'">
-        <div>
-          <h1 class="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-            <span>📊</span> Sales & Cross-sell Analytics Dashboard
-          </h1>
-          <p class="text-sm text-slate-500 mt-0.5">
-            ดึงกลุ่มสินค้าจาก Column E คำนวณ Ropp vs Act รายโครงการ พร้อมระบบ Forecast, Matrix, Dealer และ Site Photo / AI Site Visit
-          </p>
+  <!-- Header (กะทัดรัดและเลื่อนตามหน้าจอบนมือถือ คงรูปแบบ Sticky บนหน้าจอคอมพิวเตอร์) -->
+  <header class="bg-white border-b border-slate-200 md:sticky md:top-0 z-30 shadow-sm">
+    <div class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2.5 md:py-4 flex flex-col md:flex-row justify-between items-stretch md:items-center gap-2 md:gap-4">
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2 md:gap-3 min-w-0">
+          <img src="icon.png" alt="App Icon" class="w-8 h-8 md:w-10 md:h-10 rounded-xl shadow-sm object-cover border border-slate-100 shrink-0" onerror="this.style.display='none'">
+          <div class="min-w-0">
+            <h1 class="text-base sm:text-xl md:text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-1.5 md:gap-2 truncate">
+              <span>📊</span> <span class="truncate">Sales & Cross-sell Analytics Dashboard</span>
+            </h1>
+            <p class="hidden md:block text-sm text-slate-500 mt-0.5">
+              ดึงกลุ่มสินค้าจาก Column E คำนวณ Ropp vs Act รายโครงการ พร้อมระบบ Forecast, Matrix, Dealer และ Site Photo / AI Site Visit
+            </p>
+          </div>
         </div>
+        <!-- ปุ่มเปิด/ปิดแถบเครื่องมือบนหน้าจอมือถือ -->
+        <button id="toggleMobileHeaderToolsBtn" type="button" onclick="toggleMobileHeaderTools()" class="md:hidden inline-flex items-center gap-1 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg shrink-0 transition-all">
+          <span>⚙️</span> <span>เมนู</span>
+        </button>
       </div>
       
-      <div class="flex flex-wrap items-center gap-2">
-        <!-- ตัวกรองโครงการหลัก (Master Project Filter) จุดเดียวคุมทั้ง App -->
-        <div class="inline-flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm">
-          <span class="text-indigo-900">🏗️ โครงการ:</span>
-          <select id="masterProjectSelect" class="bg-white text-indigo-700 font-bold px-2 py-0.5 rounded border border-indigo-300 focus:outline-none cursor-pointer max-w-[180px] sm:max-w-[240px]">
-            <option value="all">เลือกโครงการทั้งหมด</option>
-          </select>
+      <div class="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-1.5 md:gap-2">
+        <!-- แถวตัวกรองหลัก (จัดเรียงคู่กัน 2 คอลัมน์บนมือถือ เพื่อประหยัดพื้นที่แนวตั้ง) -->
+        <div class="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-1.5 md:gap-2">
+          <!-- ตัวกรองโครงการหลัก (Master Project Filter) จุดเดียวคุมทั้ง App -->
+          <div class="inline-flex items-center gap-1 bg-indigo-50 border border-indigo-200 px-2 py-1 md:px-3 md:py-1.5 rounded-lg text-[11px] md:text-xs font-semibold shadow-sm min-w-0">
+            <span class="text-indigo-900 shrink-0">🏗️<span class="hidden sm:inline"> โครงการ:</span></span>
+            <select id="masterProjectSelect" class="bg-white text-indigo-700 font-bold px-1.5 py-0.5 rounded border border-indigo-300 focus:outline-none cursor-pointer w-full sm:max-w-[180px] md:max-w-[240px] truncate">
+              <option value="all">เลือกโครงการทั้งหมด</option>
+            </select>
+          </div>
+
+          <!-- หน่วยแสดงผล -->
+          <div class="inline-flex items-center gap-1 bg-indigo-50 border border-indigo-200 px-2 py-1 md:px-3 md:py-1.5 rounded-lg text-[11px] md:text-xs font-semibold shadow-sm min-w-0">
+            <span class="text-indigo-900 shrink-0">📊<span class="hidden sm:inline"> หน่วย:</span></span>
+            <select id="unitDisplayModeSelect" class="bg-white text-indigo-700 font-bold px-1.5 py-0.5 rounded border border-indigo-300 focus:outline-none cursor-pointer w-full sm:w-auto">
+              <option value="baht">มูลค่า (บาท)</option>
+              <option value="unit">ปริมาณ (หน่วยสินค้า)</option>
+            </select>
+          </div>
         </div>
 
-        <!-- ปุ่มรวมข้อมูลโครงการ (เฉพาะ Actual และ Report Site Visit) -->
-        <button id="openMergeProjectsModalBtn" type="button" onclick="openMergeProjectsModal()" class="inline-flex items-center gap-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-300 text-xs font-semibold px-3 py-2 rounded-lg transition-all shadow-sm">
-          <span>🔗</span> <span>รวมข้อมูลโครงการ</span>
-          <span id="activeMergeCountBadge" class="hidden bg-teal-600 text-white text-[10px] px-1.5 py-0.2 rounded-full font-bold">0</span>
-        </button>
+        <!-- กลุ่มปุ่มเครื่องมือและอัปโหลดไฟล์ (พับเก็บได้บนมือถือ แสดงเต็มบนคอมพิวเตอร์) -->
+        <div id="headerToolsContainer" class="hidden md:flex grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-1.5 md:gap-2 pt-1.5 md:pt-0 border-t border-slate-100 md:border-none">
+          <!-- ปุ่มรวมข้อมูลโครงการ (เฉพาะ Actual และ Report Site Visit) -->
+          <button id="openMergeProjectsModalBtn" type="button" onclick="openMergeProjectsModal()" class="inline-flex items-center justify-center md:justify-start gap-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-300 text-[11px] md:text-xs font-semibold px-2.5 py-1.5 md:px-3 md:py-2 rounded-lg transition-all shadow-sm">
+            <span>🔗</span> <span>รวมข้อมูลโครงการ</span>
+            <span id="activeMergeCountBadge" class="hidden bg-teal-600 text-white text-[10px] px-1.5 py-0.2 rounded-full font-bold">0</span>
+          </button>
 
-        <!-- หน่วยแสดงผล -->
-        <div class="inline-flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm">
-          <span class="text-indigo-900">📊 หน่วย:</span>
-          <select id="unitDisplayModeSelect" class="bg-white text-indigo-700 font-bold px-2 py-0.5 rounded border border-indigo-300 focus:outline-none cursor-pointer">
-            <option value="baht">มูลค่า (บาท)</option>
-            <option value="unit">ปริมาณ (หน่วยสินค้า)</option>
-          </select>
+          <!-- ปุ่มตั้งค่า Gemini Key -->
+          <button id="openGeminiModalBtn" type="button" class="inline-flex items-center justify-center md:justify-start gap-1.5 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-300 text-[11px] md:text-xs font-semibold px-2.5 py-1.5 md:px-3 md:py-2 rounded-lg transition-all shadow-sm">
+            <span>🔑</span> <span id="apiKeyBtnLabel">ตั้งค่า Gemini Key</span>
+          </button>
+
+          <!-- ปุ่ม Backup & Restore JSON -->
+          <button id="openBackupModalBtn" type="button" onclick="openBackupJsonModal()" class="inline-flex items-center justify-center md:justify-start gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-[11px] md:text-xs font-semibold px-2.5 py-1.5 md:px-3 md:py-2 rounded-lg transition-all shadow-sm">
+            <span>💾</span> Backup JSON
+          </button>
+          <label for="restoreJsonFileInput" class="cursor-pointer inline-flex items-center justify-center md:justify-start gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-[11px] md:text-xs font-semibold px-2.5 py-1.5 md:px-3 md:py-2 rounded-lg transition-all shadow-sm">
+            <span>📥</span> Restore JSON
+          </label>
+          <input type="file" id="restoreJsonFileInput" accept=".json,application/json" class="hidden" />
+
+          <!-- ปุ่มอัปโหลดรูปภาพ Site Visit (AI) -->
+          <button id="openSiteVisitModalBtn" type="button" class="inline-flex items-center justify-center md:justify-start gap-1.5 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-300 text-[11px] md:text-xs font-semibold px-2.5 py-1.5 md:px-3 md:py-2 rounded-lg transition-all shadow-sm">
+            <span>🤖</span> สแกนวิเคราะห์ด้วย AI
+          </button>
+
+          <!-- ปุ่มอัปโหลดราคาต่อหน่วย -->
+          <label for="priceFileInput" class="cursor-pointer inline-flex items-center justify-center md:justify-start gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-[11px] md:text-xs font-semibold px-2.5 py-1.5 md:px-3 md:py-2 rounded-lg transition-all shadow-sm">
+            <span>🏷️</span> อัปโหลดราคาต่อหน่วย
+          </label>
+          <input type="file" id="priceFileInput" accept=".csv" class="hidden" />
+
+          <!-- ปุ่มอัปโหลดไฟล์ Dealer -->
+          <label for="dealerFileInput" class="cursor-pointer inline-flex items-center justify-center md:justify-start gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-[11px] md:text-xs font-semibold px-2.5 py-1.5 md:px-3 md:py-2 rounded-lg transition-all shadow-sm">
+            <span>🏬</span> อัปโหลดไฟล์ Dealer CSV
+          </label>
+          <input type="file" id="dealerFileInput" accept=".csv" class="hidden" />
+
+          <!-- ปุ่มอัปโหลดไฟล์ยอดขายหลัก -->
+          <label for="salesFileInput" class="cursor-pointer inline-flex items-center justify-center md:justify-start gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] md:text-xs font-semibold px-2.5 py-1.5 md:px-3 md:py-2 rounded-lg transition-all shadow-sm">
+            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+            <span>เลือกไฟล์ยอดขาย CSV</span>
+          </label>
+          <input type="file" id="salesFileInput" accept=".csv" class="hidden" />
         </div>
-
-        <!-- ปุ่มตั้งค่า Gemini Key -->
-        <button id="openGeminiModalBtn" type="button" class="inline-flex items-center gap-1.5 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-300 text-xs font-semibold px-3 py-2 rounded-lg transition-all shadow-sm">
-          <span>🔑</span> <span id="apiKeyBtnLabel">ตั้งค่า Gemini Key</span>
-        </button>
-
-        <!-- ปุ่ม Backup & Restore JSON -->
-        <button id="openBackupModalBtn" type="button" onclick="openBackupJsonModal()" class="inline-flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-semibold px-3 py-2 rounded-lg transition-all shadow-sm">
-          <span>💾</span> Backup JSON
-        </button>
-        <label for="restoreJsonFileInput" class="cursor-pointer inline-flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-semibold px-3 py-2 rounded-lg transition-all shadow-sm">
-          <span>📥</span> Restore JSON
-        </label>
-        <input type="file" id="restoreJsonFileInput" accept=".json,application/json" class="hidden" />
-
-        <!-- ปุ่มอัปโหลดรูปภาพ Site Visit (AI) -->
-        <button id="openSiteVisitModalBtn" type="button" class="inline-flex items-center gap-1.5 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-300 text-xs font-semibold px-3 py-2 rounded-lg transition-all shadow-sm">
-          <span>🤖</span> สแกนวิเคราะห์ด้วย AI
-        </button>
-
-        <!-- ปุ่มอัปโหลดราคาต่อหน่วย -->
-        <label for="priceFileInput" class="cursor-pointer inline-flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-xs font-semibold px-3 py-2 rounded-lg transition-all shadow-sm">
-          <span>🏷️</span> อัปโหลดราคาต่อหน่วย
-        </label>
-        <input type="file" id="priceFileInput" accept=".csv" class="hidden" />
-
-        <!-- ปุ่มอัปโหลดไฟล์ Dealer -->
-        <label for="dealerFileInput" class="cursor-pointer inline-flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-semibold px-3 py-2 rounded-lg transition-all shadow-sm">
-          <span>🏬</span> อัปโหลดไฟล์ Dealer CSV
-        </label>
-        <input type="file" id="dealerFileInput" accept=".csv" class="hidden" />
-
-        <!-- ปุ่มอัปโหลดไฟล์ยอดขายหลัก -->
-        <label for="salesFileInput" class="cursor-pointer inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-all shadow-sm">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
-          เลือกไฟล์ยอดขาย CSV
-        </label>
-        <input type="file" id="salesFileInput" accept=".csv" class="hidden" />
       </div>
     </div>
   </header>
@@ -214,7 +226,12 @@
               <span>🤖</span> สแกนด้วย AI
             </button>
 
-            <!-- ปุ่ม Export Excel สำหรับรายงานหน้างาน -->
+            <!-- ปุ่ม Export Excel เลือกรายการงานอัปเดตประจำสัปดาห์ (2 คอลัมน์: ชื่อโครงการ + ข้อความอัปเดตงาน) -->
+            <button id="openWeeklySelectExportModalBtn" type="button" onclick="openWeeklySelectExportModal()" class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm transition-all">
+              <span>📋</span> Export Weekly (เลือกงาน)
+            </button>
+
+            <!-- ปุ่ม Export Excel สำหรับรายงานหน้างานทั้งหมด -->
             <button onclick="exportSiteVisitsToExcel()" class="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm transition-all">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
               Export Excel
@@ -1064,13 +1081,57 @@
     </div>
   </div>
 
+  <!-- Modal 9: Weekly Site Update Select & Export Excel Modal -->
+  <div id="weeklySelectExportModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-100">
+      <div class="p-5 border-b border-indigo-100 bg-indigo-50/80 flex justify-between items-center">
+        <div class="flex items-center gap-2">
+          <span class="text-xl">📋</span>
+          <div>
+            <h3 class="text-base font-bold text-indigo-950">Export รายงาน Updated Site Weekly (.xlsx)</h3>
+            <p class="text-xs text-indigo-700">เลือกรายการงานอัปเดตที่ต้องการ (ตาราง 2 คอลัมน์: ชื่อโครงการ และ ข้อความอัปเดตงาน)</p>
+          </div>
+        </div>
+        <button onclick="closeWeeklySelectExportModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-full">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <div class="p-5 overflow-y-auto space-y-3 custom-scrollbar text-xs flex-1">
+        <div class="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-2 pb-2 border-b border-slate-100">
+          <input type="text" id="weeklyExportSearchInput" oninput="renderWeeklyExportItemsList()" placeholder="ค้นหาชื่อโครงการ, วันที่ หรือข้อความอัปเดต..."
+                 class="text-xs px-3 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white w-full sm:w-64">
+          <div class="flex items-center justify-between sm:justify-end gap-2">
+            <span id="weeklyExportSelectedCount" class="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md">เลือก 0 รายการ</span>
+            <button type="button" onclick="toggleAllWeeklyExportItems(true)" class="text-[11px] text-indigo-600 hover:underline font-semibold">เลือกทั้งหมด</button>
+            <span class="text-slate-300">|</span>
+            <button type="button" onclick="toggleAllWeeklyExportItems(false)" class="text-[11px] text-slate-500 hover:underline">ล้างการเลือก</button>
+          </div>
+        </div>
+
+        <div id="weeklyExportItemsList" class="space-y-2 max-h-80 overflow-y-auto custom-scrollbar pr-0.5">
+          <div class="text-slate-400 text-center py-6">กำลังโหลดรายการรายงานหน้างาน...</div>
+        </div>
+      </div>
+
+      <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
+        <button onclick="closeWeeklySelectExportModal()" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded-lg transition-colors">
+          ยกเลิก
+        </button>
+        <button onclick="executeWeeklySelectedExcelExport()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-1.5">
+          <span>📥</span> Export Excel ที่เลือก
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- 6 Modular App Scripts -->
-  <script src="db.js?v=9"></script>
-  <script src="state.js?v=9"></script>
-  <script src="dealer.js?v=9"></script>
-  <script src="forecast.js?v=9"></script>
-  <script src="site-visit.js?v=9"></script>
-  <script src="sales-engine.js?v=9"></script>
+  <script src="db.js?v=11"></script>
+  <script src="state.js?v=11"></script>
+  <script src="dealer.js?v=11"></script>
+  <script src="forecast.js?v=11"></script>
+  <script src="site-visit.js?v=11"></script>
+  <script src="sales-engine.js?v=11"></script>
 
   <!-- PWA Service Worker Registration -->
   <script>

@@ -5,8 +5,23 @@
  * 1. ยอดขายจริงรวม (Total Act) และอัตราความสำเร็จคำนวณจากไฟล์ Dealer CSV (matchedDealerList) โดยตรง
  * 2. รองรับปุ่ม "รวมข้อมูลโครงการ" (ย้ายเฉพาะยอด Actual และรายงาน Site Visit เข้าโครงการหลัก)
  * 3. รองรับปุ่ม "Backup JSON" และ "Restore JSON" แบบเลือกหมวดหมู่ได้ และประกอบไฟล์แบบแบ่งส่วน (Chunked Blob Assembly)
- * 4. รับประกันการแสดงผล Modal ทั้ง 2 ชุดและผูก Event ครบทุกช่องทาง
+ * 4. เพิ่มปุ่ม Export รายงาน Updated Site Weekly แบบเลือกหลายงานได้ (ตาราง Excel 2 คอลัมน์: ชื่อโครงการ + ข้อความอัปเดตงาน)
+ * 5. รองรับเมนูพับเก็บได้บนหน้าจอมือถือ (toggleMobileHeaderTools)
  */
+
+function toggleMobileHeaderTools() {
+  const container = document.getElementById('headerToolsContainer');
+  const btn = document.getElementById('toggleMobileHeaderToolsBtn');
+  if (!container) return;
+  const isHidden = container.classList.contains('hidden');
+  if (isHidden) {
+    container.classList.remove('hidden');
+    if (btn) btn.innerHTML = '<span>✖️</span> <span>ปิดเมนู</span>';
+  } else {
+    container.classList.add('hidden');
+    if (btn) btn.innerHTML = '<span>⚙️</span> <span>เมนู</span>';
+  }
+}
 
 function handleSalesFile(file) {
   if (!file) return;
@@ -1057,6 +1072,250 @@ function ensureMergeAndBackupModalsExist() {
   } else if (backupModal.parentElement !== document.body) {
     document.body.appendChild(backupModal);
   }
+
+  let weeklyExportModal = document.getElementById('weeklySelectExportModal');
+  if (!weeklyExportModal) {
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = `
+      <div id="weeklySelectExportModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-100">
+          <div class="p-5 border-b border-indigo-100 bg-indigo-50/80 flex justify-between items-center">
+            <div class="flex items-center gap-2">
+              <span class="text-xl">📋</span>
+              <div>
+                <h3 class="text-base font-bold text-indigo-950">Export รายงาน Updated Site Weekly (.xlsx)</h3>
+                <p class="text-xs text-indigo-700">เลือกรายการงานอัปเดตที่ต้องการ (ตาราง 2 คอลัมน์: ชื่อโครงการ และ ข้อความอัปเดตงาน)</p>
+              </div>
+            </div>
+            <button onclick="closeWeeklySelectExportModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-full">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+          <div class="p-5 overflow-y-auto space-y-3 custom-scrollbar text-xs flex-1">
+            <div class="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-2 pb-2 border-b border-slate-100">
+              <input type="text" id="weeklyExportSearchInput" oninput="renderWeeklyExportItemsList()" placeholder="ค้นหาชื่อโครงการ, วันที่ หรือข้อความอัปเดต..."
+                     class="text-xs px-3 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white w-full sm:w-64">
+              <div class="flex items-center justify-between sm:justify-end gap-2">
+                <span id="weeklyExportSelectedCount" class="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md">เลือก 0 รายการ</span>
+                <button type="button" onclick="toggleAllWeeklyExportItems(true)" class="text-[11px] text-indigo-600 hover:underline font-semibold">เลือกทั้งหมด</button>
+                <span class="text-slate-300">|</span>
+                <button type="button" onclick="toggleAllWeeklyExportItems(false)" class="text-[11px] text-slate-500 hover:underline">ล้างการเลือก</button>
+              </div>
+            </div>
+            <div id="weeklyExportItemsList" class="space-y-2 max-h-80 overflow-y-auto custom-scrollbar pr-0.5">
+              <div class="text-slate-400 text-center py-6">กำลังโหลดรายการรายงานหน้างาน...</div>
+            </div>
+          </div>
+          <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
+            <button onclick="closeWeeklySelectExportModal()" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded-lg transition-colors">
+              ยกเลิก
+            </button>
+            <button onclick="executeWeeklySelectedExcelExport()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-1.5">
+              <span>📥</span> Export Excel ที่เลือก
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+    weeklyExportModal = wrapper.firstElementChild;
+    document.body.appendChild(weeklyExportModal);
+  } else if (weeklyExportModal.parentElement !== document.body) {
+    document.body.appendChild(weeklyExportModal);
+  }
+}
+
+// ==========================================
+// Weekly Site Update Select & Export Excel (2 Columns)
+// ==========================================
+let weeklyExportCandidatesCache = [];
+let weeklyExportSelectedIds = new Set();
+
+function buildWeeklyJobUpdateMessage(visit) {
+  const lines = [];
+  if (visit.visitDate && String(visit.visitDate).trim() && String(visit.visitDate).trim() !== '-') {
+    lines.push(`วันที่เข้าตรวจ: ${String(visit.visitDate).trim()}`);
+  }
+  if (visit.contractor && String(visit.contractor).trim() && String(visit.contractor).trim() !== '-') {
+    lines.push(`ผู้รับเหมา: ${String(visit.contractor).trim()}`);
+  }
+  if (visit.siteProgress && String(visit.siteProgress).trim() && String(visit.siteProgress).trim() !== '-') {
+    lines.push(`ความคืบหน้า: ${String(visit.siteProgress).trim()}`);
+  }
+  if (visit.materialForecast && String(visit.materialForecast).trim() && String(visit.materialForecast).trim() !== '-') {
+    lines.push(`แผนเรียกสินค้า: ${String(visit.materialForecast).trim()}`);
+  }
+  if (visit.issuesAndRisks && String(visit.issuesAndRisks).trim() && String(visit.issuesAndRisks).trim() !== '-') {
+    lines.push(`ปัญหา/ความเสี่ยง: ${String(visit.issuesAndRisks).trim()}`);
+  }
+  if (visit.nextWeekActions && String(visit.nextWeekActions).trim() && String(visit.nextWeekActions).trim() !== '-') {
+    lines.push(`สิ่งที่ต้องติดตาม: ${String(visit.nextWeekActions).trim()}`);
+  }
+  if (lines.length === 0) {
+    const imgCount = Array.isArray(visit.images) ? visit.images.length : 0;
+    return imgCount > 0 ? `อัปเดตรูปถ่ายหน้างานจำนวน ${imgCount} รูป` : '-';
+  }
+  return lines.join('\n');
+}
+
+async function openWeeklySelectExportModal() {
+  ensureMergeAndBackupModalsExist();
+  const modal = document.getElementById('weeklySelectExportModal');
+  if (!modal) return;
+
+  try {
+    if (!db && typeof initIndexedDB === 'function') await initIndexedDB();
+    let allVisits = await dbGetAll('site_visits');
+    if ((!allVisits || allVisits.length === 0) && Array.isArray(siteVisitLogsGlobal)) {
+      allVisits = siteVisitLogsGlobal;
+    }
+
+    const proj = selectedMasterProject !== 'all' ? projectsMapGlobal[selectedMasterProject] : null;
+    const filtered = (allVisits || []).filter(v => {
+      if (selectedMasterProject === 'all') return true;
+      return v.projectId === selectedMasterProject ||
+             v.projectName === selectedMasterProject ||
+             (proj && (v.projectId === proj.id || v.projectName === proj.name));
+    });
+
+    filtered.sort((a, b) => {
+      const tA = a.createdAt ? new Date(a.createdAt).getTime() : (Number(a.id) || 0);
+      const tB = b.createdAt ? new Date(b.createdAt).getTime() : (Number(b.id) || 0);
+      return tB - tA;
+    });
+
+    weeklyExportCandidatesCache = filtered;
+    weeklyExportSelectedIds = new Set(filtered.map((v, idx) => String(v.id !== undefined ? v.id : idx)));
+
+    const searchInput = document.getElementById('weeklyExportSearchInput');
+    if (searchInput) searchInput.value = '';
+
+    renderWeeklyExportItemsList();
+    modal.classList.remove('hidden');
+  } catch (err) {
+    alert('เกิดข้อผิดพลาดในการโหลดรายการรายงานหน้างาน: ' + err.message);
+  }
+}
+
+function closeWeeklySelectExportModal() {
+  const modal = document.getElementById('weeklySelectExportModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function updateWeeklyExportSelectedCount() {
+  const el = document.getElementById('weeklyExportSelectedCount');
+  if (!el) return;
+  el.textContent = `เลือก ${weeklyExportSelectedIds.size} จาก ${weeklyExportCandidatesCache.length} รายการ`;
+}
+
+function toggleSingleWeeklyExportItem(itemId, isChecked) {
+  if (isChecked) {
+    weeklyExportSelectedIds.add(String(itemId));
+  } else {
+    weeklyExportSelectedIds.delete(String(itemId));
+  }
+  updateWeeklyExportSelectedCount();
+}
+
+function toggleAllWeeklyExportItems(shouldSelect) {
+  const searchTerm = (document.getElementById('weeklyExportSearchInput')?.value || '').toLowerCase().trim();
+  weeklyExportCandidatesCache.forEach((v, idx) => {
+    const idStr = String(v.id !== undefined ? v.id : idx);
+    const updateMsg = buildWeeklyJobUpdateMessage(v);
+    const matchSearch = !searchTerm ||
+      (v.projectName || '').toLowerCase().includes(searchTerm) ||
+      (v.projectId || '').toLowerCase().includes(searchTerm) ||
+      updateMsg.toLowerCase().includes(searchTerm);
+
+    if (matchSearch) {
+      if (shouldSelect) {
+        weeklyExportSelectedIds.add(idStr);
+      } else {
+        weeklyExportSelectedIds.delete(idStr);
+      }
+    }
+  });
+  renderWeeklyExportItemsList();
+}
+
+function renderWeeklyExportItemsList() {
+  const container = document.getElementById('weeklyExportItemsList');
+  if (!container) return;
+
+  if (!weeklyExportCandidatesCache || weeklyExportCandidatesCache.length === 0) {
+    container.innerHTML = `<div class="text-slate-400 text-center py-8 bg-slate-50 rounded-xl border border-slate-100">ไม่พบรายการรายงานหน้างานตามตัวกรองปัจจุบัน</div>`;
+    updateWeeklyExportSelectedCount();
+    return;
+  }
+
+  const searchTerm = (document.getElementById('weeklyExportSearchInput')?.value || '').toLowerCase().trim();
+  const visibleItems = weeklyExportCandidatesCache
+    .map((v, idx) => ({ v, idStr: String(v.id !== undefined ? v.id : idx), updateMsg: buildWeeklyJobUpdateMessage(v) }))
+    .filter(item => {
+      if (!searchTerm) return true;
+      return (item.v.projectName || '').toLowerCase().includes(searchTerm) ||
+             (item.v.projectId || '').toLowerCase().includes(searchTerm) ||
+             item.updateMsg.toLowerCase().includes(searchTerm);
+    });
+
+  if (visibleItems.length === 0) {
+    container.innerHTML = `<div class="text-slate-400 text-center py-6 bg-slate-50 rounded-xl border border-slate-100">ไม่พบรายการตามคำค้นหา</div>`;
+    updateWeeklyExportSelectedCount();
+    return;
+  }
+
+  container.innerHTML = visibleItems.map(({ v, idStr, updateMsg }) => {
+    const isChecked = weeklyExportSelectedIds.has(idStr);
+    const jsId = escapeJsString(idStr);
+    const titleText = `${v.projectName || 'ไม่ระบุชื่อโครงการ'}${v.projectId && v.projectId !== '-' ? ` (${v.projectId})` : ''}`;
+
+    return `
+      <label class="flex items-start gap-2.5 p-3 rounded-xl bg-white hover:bg-indigo-50/40 border ${isChecked ? 'border-indigo-300 bg-indigo-50/20' : 'border-slate-200'} cursor-pointer transition-colors">
+        <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleSingleWeeklyExportItem('${jsId}', this.checked)"
+               class="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4 shrink-0">
+        <div class="min-w-0 flex-1 space-y-1">
+          <div class="flex flex-wrap items-center justify-between gap-1">
+            <span class="font-bold text-slate-900 truncate">${escapeHtml(titleText)}</span>
+            <span class="text-[10px] font-mono bg-sky-50 text-sky-700 border border-sky-200 px-2 py-0.5 rounded-md shrink-0">
+              ${escapeHtml(v.visitDate || '-')}
+            </span>
+          </div>
+          <p class="text-[11px] text-slate-600 whitespace-pre-line line-clamp-3 leading-relaxed">${escapeHtml(updateMsg)}</p>
+        </div>
+      </label>
+    `;
+  }).join('');
+
+  updateWeeklyExportSelectedCount();
+}
+
+function executeWeeklySelectedExcelExport() {
+  const selectedItems = weeklyExportCandidatesCache.filter((v, idx) => {
+    const idStr = String(v.id !== undefined ? v.id : idx);
+    return weeklyExportSelectedIds.has(idStr);
+  });
+
+  if (selectedItems.length === 0) {
+    alert('กรุณาเลือกงานอัปเดตอย่างน้อย 1 รายการก่อนกด Export');
+    return;
+  }
+
+  // ตาราง Excel 2 คอลัมน์: ชื่อโครงการ และ ข้อความอัปเดตงาน
+  const excelRows = selectedItems.map(v => {
+    const projectCol = `${v.projectName || 'ไม่ระบุชื่อโครงการ'}${v.projectId && v.projectId !== '-' ? ` (${v.projectId})` : ''}`;
+    const updateCol = buildWeeklyJobUpdateMessage(v);
+    return {
+      "ชื่อโครงการ": projectCol,
+      "ข้อความอัปเดตงาน": updateCol
+    };
+  });
+
+  const ws = XLSX.utils.json_to_sheet(excelRows);
+  ws['!cols'] = [{ wch: 40 }, { wch: 85 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Weekly_Site_Update');
+  XLSX.writeFile(wb, `Weekly_Site_Update_${new Date().toISOString().slice(0, 10)}.xlsx`);
+
+  closeWeeklySelectExportModal();
 }
 
 // ==========================================
@@ -1698,6 +1957,7 @@ async function handleRestoreJsonFile(file) {
 }
 
 // ผูกฟังก์ชันเข้ากับ window และ Event Delegation ระดับ document เพื่อให้ปุ่มทำงานได้เสมอ
+window.toggleMobileHeaderTools = toggleMobileHeaderTools;
 window.openMergeProjectsModal = openMergeProjectsModal;
 window.closeMergeProjectsModal = closeMergeProjectsModal;
 window.renderMergeSourceProjectsList = renderMergeSourceProjectsList;
@@ -1709,6 +1969,12 @@ window.openBackupJsonModal = openBackupJsonModal;
 window.closeBackupJsonModal = closeBackupJsonModal;
 window.executeBackupJsonDownload = executeBackupJsonDownload;
 window.handleRestoreJsonFile = handleRestoreJsonFile;
+window.openWeeklySelectExportModal = openWeeklySelectExportModal;
+window.closeWeeklySelectExportModal = closeWeeklySelectExportModal;
+window.toggleSingleWeeklyExportItem = toggleSingleWeeklyExportItem;
+window.toggleAllWeeklyExportItems = toggleAllWeeklyExportItems;
+window.renderWeeklyExportItemsList = renderWeeklyExportItemsList;
+window.executeWeeklySelectedExcelExport = executeWeeklySelectedExcelExport;
 
 document.addEventListener('click', (e) => {
   const mergeBtn = e.target.closest('#openMergeProjectsModalBtn');
@@ -1721,6 +1987,12 @@ document.addEventListener('click', (e) => {
   if (backupBtn) {
     e.preventDefault();
     openBackupJsonModal();
+    return;
+  }
+  const weeklyExportBtn = e.target.closest('#openWeeklySelectExportModalBtn');
+  if (weeklyExportBtn) {
+    e.preventDefault();
+    openWeeklySelectExportModal();
     return;
   }
 });
@@ -1965,7 +2237,7 @@ async function initializeSalesEngineApp() {
   });
 
   // Modal Backdrop Click
-  const modals = ['geminiKeyModal', 'siteVisitModal', 'crossSellModal', 'projectModal', 'imageLightboxModal', 'editSiteVisitModal', 'mergeProjectsModal', 'backupJsonModal'];
+  const modals = ['geminiKeyModal', 'siteVisitModal', 'crossSellModal', 'projectModal', 'imageLightboxModal', 'editSiteVisitModal', 'mergeProjectsModal', 'backupJsonModal', 'weeklySelectExportModal'];
   modals.forEach(mId => {
     const el = document.getElementById(mId);
     if (el) {
