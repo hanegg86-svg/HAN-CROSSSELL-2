@@ -1,9 +1,10 @@
 /**
  * Global State & Utilities (state.js)
- * รวมตัวแปร State กลาง, Master ราคาต่อหน่วย, และฟังก์ชันยูทิลิตี้พื้นฐาน
+ * รวมตัวแปร State กลาง, Master ราคาต่อหน่วย, กฎการรวมโครงการ (เฉพาะ Actual & Site Visit) และฟังก์ชันยูทิลิตี้พื้นฐาน
  */
 let geminiApiKey = '';
 let selectedMasterProject = 'all'; // ตัวกรองโครงการหลักจุดเดียวคุมทั้ง App
+let projectMergeRules = []; // กฎการรวมโครงการ: [{ mainKey, mainId, mainName, sources: [{ key, id, name }] }]
 
 let unitPrices = {
   "คอนกรีตผสมเสร็จ (CPAC &FC)": 1859,
@@ -138,6 +139,39 @@ let currentInactiveSort = { column: 'inactiveMonths', order: 'desc' };
 
 // Selected Images for AI Upload Modal
 let selectedSiteFiles = [];
+
+// ==========================================
+// Project Merge Lookup Helpers (Actual & Site Visit Only)
+// ==========================================
+function getMergedTargetProjectInfo(projectId, projectName, projectKey = '') {
+  if (!projectMergeRules || projectMergeRules.length === 0) return null;
+  const pId = String(projectId || '').trim();
+  const pName = String(projectName || '').trim();
+  const pKey = String(projectKey || '').trim();
+
+  for (const rule of projectMergeRules) {
+    if (!rule || !Array.isArray(rule.sources)) continue;
+    const isMatchedSource = rule.sources.some(src => {
+      if (pKey && src.key && src.key === pKey) return true;
+      if (pId && src.id && src.id === pId) return true;
+      if (pName && src.name && src.name === pName) return true;
+      return false;
+    });
+    if (isMatchedSource) {
+      return {
+        key: rule.mainKey,
+        id: rule.mainId,
+        name: rule.mainName
+      };
+    }
+  }
+  return null;
+}
+
+function getMergedTargetProjectKey(projectKey, projectId = '', projectName = '') {
+  const target = getMergedTargetProjectInfo(projectId, projectName, projectKey);
+  return target ? target.key : projectKey;
+}
 
 // ==========================================
 // Utility Functions

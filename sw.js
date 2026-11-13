@@ -1,10 +1,10 @@
 /**
  * Service Worker - sw.js
  * จัดการ Caching ด้วยกลยุทธ์ Network-First สำหรับโหมด Offline PWA
- * อัปเดตเวอร์ชันแคชเป็น v8 เพื่อบังคับดึง dealer.js ตัวใหม่ที่อ่านยอด Actual จากช่อง AL (Actual_RUNIT)
+ * อัปเดตเวอร์ชันแคชเป็น v9 เพื่อรองรับฟีเจอร์รวมข้อมูลโครงการ (Actual & Site Visit) และ Backup/Restore JSON
  */
 
-const CACHE_NAME = 'sales-analytics-v8';
+const CACHE_NAME = 'sales-analytics-v9';
 
 // รายการไฟล์ทั้งหมดในโปรเจกต์ที่ต้องแคชไว้ใช้งานออฟไลน์
 const STATIC_ASSETS = [

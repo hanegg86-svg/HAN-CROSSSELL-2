@@ -49,6 +49,12 @@
           </select>
         </div>
 
+        <!-- ปุ่มรวมข้อมูลโครงการ (เฉพาะ Actual และ Report Site Visit) -->
+        <button id="openMergeProjectsModalBtn" type="button" class="inline-flex items-center gap-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-300 text-xs font-semibold px-3 py-2 rounded-lg transition-all shadow-sm">
+          <span>🔗</span> <span>รวมข้อมูลโครงการ</span>
+          <span id="activeMergeCountBadge" class="hidden bg-teal-600 text-white text-[10px] px-1.5 py-0.2 rounded-full font-bold">0</span>
+        </button>
+
         <!-- หน่วยแสดงผล -->
         <div class="inline-flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm">
           <span class="text-indigo-900">📊 หน่วย:</span>
@@ -62,6 +68,15 @@
         <button id="openGeminiModalBtn" type="button" class="inline-flex items-center gap-1.5 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-300 text-xs font-semibold px-3 py-2 rounded-lg transition-all shadow-sm">
           <span>🔑</span> <span id="apiKeyBtnLabel">ตั้งค่า Gemini Key</span>
         </button>
+
+        <!-- ปุ่ม Backup & Restore JSON -->
+        <button id="openBackupModalBtn" type="button" class="inline-flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-semibold px-3 py-2 rounded-lg transition-all shadow-sm">
+          <span>💾</span> Backup JSON
+        </button>
+        <label for="restoreJsonFileInput" class="cursor-pointer inline-flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-semibold px-3 py-2 rounded-lg transition-all shadow-sm">
+          <span>📥</span> Restore JSON
+        </label>
+        <input type="file" id="restoreJsonFileInput" accept=".json,application/json" class="hidden" />
 
         <!-- ปุ่มอัปโหลดรูปภาพ Site Visit (AI) -->
         <button id="openSiteVisitModalBtn" type="button" class="inline-flex items-center gap-1.5 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-300 text-xs font-semibold px-3 py-2 rounded-lg transition-all shadow-sm">
@@ -900,6 +915,105 @@
         </button>
         <button onclick="saveEditSiteVisit()" class="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-1.5">
           <span>💾</span> บันทึกการแก้ไข
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 7: Merge Projects Modal (รวมเฉพาะ Actual และ Report Site Visit) -->
+  <div id="mergeProjectsModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-100">
+      <div class="p-5 border-b border-teal-100 bg-teal-50/80 flex justify-between items-center">
+        <div class="flex items-center gap-2">
+          <span class="text-xl">🔗</span>
+          <div>
+            <h3 class="text-base font-bold text-teal-950">รวมข้อมูลโครงการ (เฉพาะ Actual และ Report Site Visit)</h3>
+            <p class="text-xs text-teal-700">เลือกโครงการหลัก (Main) และเลือกโครงการรองที่จะนำยอด Actual และรายงานหน้างานมารวม</p>
+          </div>
+        </div>
+        <button onclick="closeMergeProjectsModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-full">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <div class="p-5 overflow-y-auto space-y-4 custom-scrollbar text-xs">
+        <div class="p-3 rounded-xl bg-teal-50/60 border border-teal-200 text-teal-900 text-[11px] leading-relaxed">
+          ℹ️ <strong>ขอบเขตการรวมข้อมูล:</strong> ระบบจะย้ายเฉพาะ <strong>ยอดขายจริง (Actual ทั้งจากไฟล์หลักและ Dealer)</strong> และ <strong>รายงาน/รูปภาพหน้างาน (Site Visit)</strong> จากโครงการรองไปรวมไว้ที่โครงการหลัก โดย <strong>ไม่นำยอดโอกาส (Ropp / Forecast)</strong> มารวมด้วย
+        </div>
+
+        <div>
+          <label class="block font-bold text-slate-700 mb-1">1. เลือกโครงการหลัก (Main Project) ที่ต้องการให้เป็นตัวหลัก:</label>
+          <select id="mergeMainProjectSelect" class="w-full px-3 py-2 border border-teal-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white font-semibold text-teal-900">
+            <option value="">-- กรุณาเลือกโครงการหลัก --</option>
+          </select>
+        </div>
+
+        <div>
+          <div class="flex justify-between items-center mb-1">
+            <label class="font-bold text-slate-700">2. เลือกโครงการรองที่จะนำมารวม (เลือกได้มากกว่า 1 โครงการ):</label>
+            <input type="text" id="mergeSourceSearchInput" placeholder="ค้นหาโครงการรอง..." class="px-2.5 py-1 border border-slate-200 rounded-md text-[11px] focus:outline-none focus:ring-1 focus:ring-teal-500 w-44">
+          </div>
+          <div id="mergeSourceProjectsList" class="max-h-44 overflow-y-auto custom-scrollbar border border-slate-200 rounded-xl p-2 space-y-1 bg-slate-50/50">
+            <div class="text-slate-400 text-center py-4">กรุณาอัปโหลดไฟล์ยอดขายและเลือกโครงการหลักก่อน</div>
+          </div>
+        </div>
+
+        <div class="flex justify-end">
+          <button type="button" onclick="confirmMergeProjects()" class="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-1.5">
+            <span>🔗</span> บันทึกการรวมข้อมูลเข้าโครงการหลัก
+          </button>
+        </div>
+
+        <!-- รายการโครงการที่รวมไว้แล้ว -->
+        <div class="border-t border-slate-200 pt-4 space-y-2">
+          <div class="flex justify-between items-center">
+            <h4 class="font-bold text-slate-700">รายการจับคู่รวมโครงการที่ใช้งานอยู่:</h4>
+            <button type="button" onclick="clearAllMergeRules()" class="text-[11px] text-rose-600 hover:underline">ล้างการรวมทั้งหมด</button>
+          </div>
+          <div id="activeMergeRulesContainer" class="space-y-2 max-h-40 overflow-y-auto custom-scrollbar">
+            <div class="text-slate-400 text-center py-3 bg-slate-50 rounded-lg border border-slate-100">ยังไม่มีการตั้งค่าการรวมโครงการ</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
+        <button onclick="closeMergeProjectsModal()" class="px-5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded-lg transition-colors">
+          ปิดหน้าต่าง
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 8: Backup JSON Modal -->
+  <div id="backupJsonModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-100">
+      <div class="p-5 border-b border-slate-200 bg-slate-100/80 flex justify-between items-center">
+        <div class="flex items-center gap-2">
+          <span class="text-xl">💾</span>
+          <h3 class="text-base font-bold text-slate-900">สำรองข้อมูลทั้งหมด (Backup JSON)</h3>
+        </div>
+        <button onclick="closeBackupJsonModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-full">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="p-5 space-y-4 text-xs">
+        <p class="text-slate-600 leading-relaxed">
+          ระบบจะส่งออกข้อมูลทั้งหมดใน <strong>IndexedDB</strong> (ไฟล์ยอดขาย, ไฟล์ Dealer, ราคาต่อหน่วย, รายงานและรูปถ่าย Site Visit รวมถึงการตั้งค่ารวมโครงการ) เป็นไฟล์ <code>.json</code> เพื่อใช้กู้คืนหรือย้ายเครื่องได้ทันที
+        </p>
+        <div id="backupSummaryStats" class="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5 text-slate-700">
+          <div>กำลังตรวจสอบข้อมูลในเครื่อง...</div>
+        </div>
+        <label class="flex items-center gap-2 p-2.5 rounded-lg border border-purple-200 bg-purple-50/50 cursor-pointer">
+          <input type="checkbox" id="backupIncludeApiKeyCheckbox" class="rounded text-purple-600 focus:ring-purple-500 w-3.5 h-3.5">
+          <span class="text-purple-950 font-medium">รวม Gemini API Key ไว้ในไฟล์ Backup ด้วย</span>
+        </label>
+      </div>
+      <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
+        <button onclick="closeBackupJsonModal()" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded-lg transition-colors">
+          ยกเลิก
+        </button>
+        <button onclick="executeBackupJsonDownload()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-1.5">
+          <span>💾</span> ดาวน์โหลดไฟล์ Backup (.json)
         </button>
       </div>
     </div>

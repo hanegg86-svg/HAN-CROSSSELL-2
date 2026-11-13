@@ -5,6 +5,7 @@
  * 1. ยอด Actual ดึงค่าปริมาณขายจากช่อง AL (Actual_RUNIT) แทนช่อง AB (Actual)
  * 2. ช่องหน่วย (Unit) ดึงจากช่อง AM (Report_Unit) / Sales_Unit
  * 3. คงค่าช่วงเวลาที่เลือกไว้ (ไม่ Reset) เมื่อสลับหน่วย และอัปเดตสรุป KPI
+ * 4. รองรับการรวมยอด Dealer Actual เข้าโครงการหลัก (Main Project) ตามกฎการรวมโครงการ
  */
 
 function handleDealerFile(file) {
@@ -29,14 +30,20 @@ function processDealerCSV(rows) {
   const monthOptionsSet = new Set();
 
   rows.forEach(r => {
-    const projectSiteId = String(r['BP_PROJECT_SITE'] || r['bp_project_site'] || '').trim();
-    if (!projectSiteId) return;
-    if (validProjectIdsSet.size > 0 && !validProjectIdsSet.has(projectSiteId)) {
+    const rawProjectSiteId = String(r['BP_PROJECT_SITE'] || r['bp_project_site'] || '').trim();
+    if (!rawProjectSiteId) return;
+    if (validProjectIdsSet.size > 0 && !validProjectIdsSet.has(rawProjectSiteId)) {
       return;
     }
     const dealerName = (r['Dealer_Name'] || r['dealer_name'] || '-').trim();
     const dealerId = (r['Dealer_ID'] || r['dealer_id'] || '-').trim();
-    const projectName = (r['BP_PROJECT_SITE_NAME'] || r['bp_project_site_name'] || '-').trim();
+    const rawProjectName = (r['BP_PROJECT_SITE_NAME'] || r['bp_project_site_name'] || '-').trim();
+
+    // ตรวจสอบกฎการรวมโครงการ (ย้ายเฉพาะยอด Actual เข้าโครงการหลัก)
+    const mergedTarget = getMergedTargetProjectInfo(rawProjectSiteId, rawProjectName);
+    const projectSiteId = mergedTarget ? (mergedTarget.id || rawProjectSiteId) : rawProjectSiteId;
+    const projectName = mergedTarget ? (mergedTarget.name || rawProjectName) : rawProjectName;
+
     const prodGroupName = (r['PRD_GROUP_NAME'] || r['prd_group_name'] || r['MATERIALNAME'] || '-').trim();
     const monthVal = String(r['Months'] || r['months'] || '-').trim();
     const yearVal = String(r['Years'] || r['years'] || '-').trim();
@@ -69,6 +76,8 @@ function processDealerCSV(rows) {
       dealerName: dealerName,
       projectId: projectSiteId,
       projectName: projectName,
+      origProjectId: rawProjectSiteId,
+      origProjectName: rawProjectName,
       productGroup: prodGroupName,
       period: periodStr,
       month: monthVal,

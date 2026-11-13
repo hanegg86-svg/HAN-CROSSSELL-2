@@ -38,9 +38,24 @@ function dbSave(storeName, data) {
   return new Promise((resolve, reject) => {
     if (!db) return resolve(null);
     try {
+      let recordToSave = data;
+      // หากเป็นการบันทึก site_visits ให้ตรวจสอบกฎการรวมโครงการอัตโนมัติ
+      if (storeName === 'site_visits' && recordToSave && typeof getMergedTargetProjectInfo === 'function') {
+        const mergedTarget = getMergedTargetProjectInfo(recordToSave.projectId, recordToSave.projectName);
+        if (mergedTarget) {
+          recordToSave = {
+            ...recordToSave,
+            origProjectId: recordToSave.origProjectId || recordToSave.projectId || '',
+            origProjectName: recordToSave.origProjectName || recordToSave.projectName || '',
+            projectId: mergedTarget.id || recordToSave.projectId,
+            projectName: mergedTarget.name || recordToSave.projectName
+          };
+        }
+      }
+
       const tx = db.transaction([storeName], 'readwrite');
       const store = tx.objectStore(storeName);
-      const req = store.put(data);
+      const req = store.put(recordToSave);
       req.onsuccess = () => resolve(true);
       req.onerror = (e) => reject(e.target.error);
     } catch (err) {
