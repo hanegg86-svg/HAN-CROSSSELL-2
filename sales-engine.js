@@ -1,7 +1,11 @@
 /**
  * Sales Engine & Master Filters (sales-engine.js)
  * จัดการข้อมูลไฟล์ยอดขายหลัก Ropp vs Act, Master Filter, KPI, ตารางโครงการ, Inactive และ Cross-sell
- * ปรับปรุง: ยอดขายจริงรวม (Total Act) และอัตราความสำเร็จคำนวณจากไฟล์ Dealer CSV (matchedDealerList) โดยตรง
+ * ปรับปรุง:
+ * 1. ยอดขายจริงรวม (Total Act) และอัตราความสำเร็จคำนวณจากไฟล์ Dealer CSV (matchedDealerList) โดยตรง
+ * 2. รองรับปุ่ม "รวมข้อมูลโครงการ" (ย้ายเฉพาะยอด Actual และรายงาน Site Visit เข้าโครงการหลัก)
+ * 3. รองรับปุ่ม "Backup JSON" และ "Restore JSON" สำหรับสำรอง/กู้คืนข้อมูลทั้งระบบใน IndexedDB
+ * 4. รับประกันการแสดงผล Modal ทั้ง 2 ชุดและผูก Event ครบทุกช่องทาง
  */
 
 function handleSalesFile(file) {
@@ -111,6 +115,22 @@ function processSalesCSV(rows) {
   const prodGroupSet = new Set();
   const projectsMapUnique = new Map();
   const projectsMap = {};
+  const mergedPastActivityMap = new Map(); // ใช้รวบรวมยอดซื้อจริงในอดีตตามโครงการเป้าหมายสำหรับคำนวณ Inactive
+
+  function ensureProjectEntry(key, code, name) {
+    if (!projectsMap[key]) {
+      projectsMap[key] = {
+        id: code,
+        name: name,
+        key: key,
+        totalRopp: 0,
+        totalAct: 0,
+        productsAct: {},
+        productsRopp: {},
+        productDetails: {}
+      };
+    }
+  }
 
   dataRows.forEach(r => {
     const projectCode = (r[0] || '').trim();
@@ -130,17 +150,15 @@ function processSalesCSV(rows) {
       });
     }
 
-    if (!projectsMap[projectKey]) {
-      projectsMap[projectKey] = {
-        id: projectCode,
-        name: projectName,
-        key: projectKey,
-        totalRopp: 0,
-        totalAct: 0,
-        productsAct: {},
-        productsRopp: {},
-        productDetails: {}
-      };
+    ensureProjectEntry(projectKey, projectCode, projectName);
+
+    // ตรวจสอบกฎการรวมโครงการ (ย้ายเฉพาะ Actual ไปยัง Main Project โดยคง Ropp ไว้ที่โครงการเดิม)
+    const mergedTarget = typeof getMergedTargetProjectInfo === 'function'
+      ? getMergedTargetProjectInfo(projectCode, projectName, projectKey)
+      : null;
+    const actualTargetKey = mergedTarget ? mergedTarget.key : projectKey;
+    if (mergedTarget) {
+      ensureProjectEntry(actualTargetKey, mergedTarget.id, mergedTarget.name);
     }
 
     const unitPrice = getUnitPrice(p);
@@ -149,7 +167,7 @@ function processSalesCSV(rows) {
     let rowRoppUnitSum = 0;
     let rowActUnitSum = 0;
 
-    monthHeaders.forEach(m => {
+    monthHeaders.forEach((m, mIdx) => {
       const rUnit = parseNum(r[m.roppCol]);
       const aUnit = parseNum(r[m.actCol]);
       rowRoppUnitSum += rUnit;
@@ -160,11 +178,32 @@ function processSalesCSV(rows) {
 
       rowRoppSum += rVal;
       rowActSum += aVal;
+
+      // สะสมประวัติการซื้อจริงในอดีตตามโครงการเป้าหมาย (actualTargetKey) เพื่อตรวจ Inactive
+      let isNotFuture = true;
+      if (m.parsedDate) {
+        if (m.parsedDate.year > currentYear || (m.parsedDate.year === currentYear && m.parsedDate.month > currentMonth)) {
+          isNotFuture = false;
+        }
+      }
+      if (isNotFuture && aVal > 0 && (projectCode || r[1] || r[2])) {
+        const effCode = mergedTarget ? mergedTarget.id : projectCode;
+        const effName = mergedTarget ? mergedTarget.name : projectName;
+        const groupKey = `${actualTargetKey}||${p || 'อื่นๆ'}`;
+        if (!mergedPastActivityMap.has(groupKey)) {
+          mergedPastActivityMap.set(groupKey, {
+            projectName: effName,
+            projectCode: effCode,
+            productGroup: p || 'อื่นๆ',
+            monthlyVals: new Array(monthHeaders.length).fill(0)
+          });
+        }
+        mergedPastActivityMap.get(groupKey).monthlyVals[mIdx] += aVal;
+      }
     });
 
+    // Ropp อยู่ที่โครงการเดิมเสมอ (ไม่รวม Ropp ข้ามโครงการ)
     projectsMap[projectKey].totalRopp += rowRoppSum;
-    projectsMap[projectKey].totalAct += rowActSum;
-
     if (!projectsMap[projectKey].productDetails[p]) {
       projectsMap[projectKey].productDetails[p] = {
         productGroup: p,
@@ -176,15 +215,28 @@ function processSalesCSV(rows) {
       };
     }
     projectsMap[projectKey].productDetails[p].roppUnit += rowRoppUnitSum;
-    projectsMap[projectKey].productDetails[p].actUnit += rowActUnitSum;
     projectsMap[projectKey].productDetails[p].roppBaht += (rowRoppUnitSum * unitPrice);
-    projectsMap[projectKey].productDetails[p].actBaht += (rowActUnitSum * unitPrice);
-
-    if (rowActSum > 0) {
-      projectsMap[projectKey].productsAct[p] = (projectsMap[projectKey].productsAct[p] || 0) + rowActSum;
-    }
     if (rowRoppSum > 0) {
       projectsMap[projectKey].productsRopp[p] = (projectsMap[projectKey].productsRopp[p] || 0) + rowRoppSum;
+    }
+
+    // Actual ถูกรวมเข้าโครงการหลัก (actualTargetKey)
+    projectsMap[actualTargetKey].totalAct += rowActSum;
+    if (!projectsMap[actualTargetKey].productDetails[p]) {
+      projectsMap[actualTargetKey].productDetails[p] = {
+        productGroup: p,
+        unitPrice: unitPrice,
+        roppUnit: 0,
+        actUnit: 0,
+        roppBaht: 0,
+        actBaht: 0
+      };
+    }
+    projectsMap[actualTargetKey].productDetails[p].actUnit += rowActUnitSum;
+    projectsMap[actualTargetKey].productDetails[p].actBaht += (rowActUnitSum * unitPrice);
+
+    if (rowActSum > 0) {
+      projectsMap[actualTargetKey].productsAct[p] = (projectsMap[actualTargetKey].productsAct[p] || 0) + rowActSum;
     }
   });
 
@@ -220,14 +272,14 @@ function processSalesCSV(rows) {
   dataRows.forEach(row => {
     const projectCode = (row[0] || '').trim();
     if (!projectCode && !row[1] && !row[2]) return;
-    const projectName = (row[1] || row[2] || projectCode || 'ไม่ระบุชื่อโครงการ').trim();
     const productGroup = (row[4] || 'อื่นๆ').trim();
-
     const unitPrice = getUnitPrice(productGroup);
     if (unitPrice === 0) {
       missingPriceProducts.add(productGroup);
     }
+  });
 
+  mergedPastActivityMap.forEach(entry => {
     let hasPastSales = false;
     let lastActiveMonthYear = '-';
     let lastActiveDateObj = null;
@@ -235,18 +287,9 @@ function processSalesCSV(rows) {
     let totalPastAct = 0;
     let pastMonthsCountWithSales = 0;
 
-    monthHeaders.forEach(m => {
-      const aUnit = parseNum(row[m.actCol]);
-      const aVal = displayMode === 'baht' ? (aUnit * unitPrice) : aUnit;
-
-      let isNotFuture = true;
-      if (m.parsedDate) {
-        if (m.parsedDate.year > currentYear || (m.parsedDate.year === currentYear && m.parsedDate.month > currentMonth)) {
-          isNotFuture = false;
-        }
-      }
-
-      if (isNotFuture && aVal > 0) {
+    entry.monthlyVals.forEach((aVal, mIdx) => {
+      if (aVal > 0) {
+        const m = monthHeaders[mIdx];
         hasPastSales = true;
         lastActiveMonthYear = m.monthYear;
         lastActiveActVal = aVal;
@@ -269,9 +312,9 @@ function processSalesCSV(rows) {
       if (inactiveMonths >= 2) {
         const avgPastAct = pastMonthsCountWithSales > 0 ? (totalPastAct / pastMonthsCountWithSales) : 0;
         inactiveList.push({
-          projectName: projectName,
-          projectCode: projectCode,
-          productGroup: productGroup,
+          projectName: entry.projectName,
+          projectCode: entry.projectCode,
+          productGroup: entry.productGroup,
           lastMonthYear: lastActiveMonthYear,
           lastActiveDateObj: lastActiveDateObj,
           lastActVal: lastActiveActVal,
@@ -365,7 +408,9 @@ function populateMasterProjectSelect() {
 
 function applyMasterProjectFilter() {
   updateKpiSummary();
-  renderWeeklySiteVisitDashboard();
+  if (typeof renderWeeklySiteVisitDashboard === 'function') {
+    renderWeeklySiteVisitDashboard();
+  }
   renderDealerTable();
   updateDealerComparisonCharts();
   updateForecastProductChart();
@@ -853,15 +898,606 @@ function exportModalProductsToExcel() {
 }
 
 // ==========================================
+// Ensure Modals Exist in DOM (Fallback Safety)
+// ==========================================
+function ensureMergeAndBackupModalsExist() {
+  if (!document.body) return;
+
+  let mergeModal = document.getElementById('mergeProjectsModal');
+  if (!mergeModal) {
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = `
+      <div id="mergeProjectsModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-100">
+          <div class="p-5 border-b border-teal-100 bg-teal-50/80 flex justify-between items-center">
+            <div class="flex items-center gap-2">
+              <span class="text-xl">🔗</span>
+              <div>
+                <h3 class="text-base font-bold text-teal-950">รวมข้อมูลโครงการ (เฉพาะ Actual และ Report Site Visit)</h3>
+                <p class="text-xs text-teal-700">เลือกโครงการหลัก (Main) และเลือกโครงการรองที่จะนำยอด Actual และรายงานหน้างานมารวม</p>
+              </div>
+            </div>
+            <button onclick="closeMergeProjectsModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-full">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+          <div class="p-5 overflow-y-auto space-y-4 custom-scrollbar text-xs">
+            <div class="p-3 rounded-xl bg-teal-50/60 border border-teal-200 text-teal-900 text-[11px] leading-relaxed">
+              ℹ️ <strong>ขอบเขตการรวมข้อมูล:</strong> ระบบจะย้ายเฉพาะ <strong>ยอดขายจริง (Actual ทั้งจากไฟล์หลักและ Dealer)</strong> และ <strong>รายงาน/รูปภาพหน้างาน (Site Visit)</strong> จากโครงการรองไปรวมไว้ที่โครงการหลัก โดย <strong>ไม่นำยอดโอกาส (Ropp / Forecast)</strong> มารวมด้วย
+            </div>
+            <div>
+              <label class="block font-bold text-slate-700 mb-1">1. เลือกโครงการหลัก (Main Project) ที่ต้องการให้เป็นตัวหลัก:</label>
+              <select id="mergeMainProjectSelect" onchange="renderMergeSourceProjectsList()" class="w-full px-3 py-2 border border-teal-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white font-semibold text-teal-900">
+                <option value="">-- กรุณาเลือกโครงการหลัก --</option>
+              </select>
+            </div>
+            <div>
+              <div class="flex justify-between items-center mb-1">
+                <label class="font-bold text-slate-700">2. เลือกโครงการรองที่จะนำมารวม (เลือกได้มากกว่า 1 โครงการ):</label>
+                <input type="text" id="mergeSourceSearchInput" oninput="renderMergeSourceProjectsList()" placeholder="ค้นหาโครงการรอง..." class="px-2.5 py-1 border border-slate-200 rounded-md text-[11px] focus:outline-none focus:ring-1 focus:ring-teal-500 w-44">
+              </div>
+              <div id="mergeSourceProjectsList" class="max-h-44 overflow-y-auto custom-scrollbar border border-slate-200 rounded-xl p-2 space-y-1 bg-slate-50/50">
+                <div class="text-slate-400 text-center py-4">กรุณาอัปโหลดไฟล์ยอดขายและเลือกโครงการหลักก่อน</div>
+              </div>
+            </div>
+            <div class="flex justify-end">
+              <button type="button" onclick="confirmMergeProjects()" class="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-1.5">
+                <span>🔗</span> บันทึกการรวมข้อมูลเข้าโครงการหลัก
+              </button>
+            </div>
+            <div class="border-t border-slate-200 pt-4 space-y-2">
+              <div class="flex justify-between items-center">
+                <h4 class="font-bold text-slate-700">รายการจับคู่รวมโครงการที่ใช้งานอยู่:</h4>
+                <button type="button" onclick="clearAllMergeRules()" class="text-[11px] text-rose-600 hover:underline">ล้างการรวมทั้งหมด</button>
+              </div>
+              <div id="activeMergeRulesContainer" class="space-y-2 max-h-40 overflow-y-auto custom-scrollbar">
+                <div class="text-slate-400 text-center py-3 bg-slate-50 rounded-lg border border-slate-100">ยังไม่มีการตั้งค่าการรวมโครงการ</div>
+              </div>
+            </div>
+          </div>
+          <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
+            <button onclick="closeMergeProjectsModal()" class="px-5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded-lg transition-colors">
+              ปิดหน้าต่าง
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+    mergeModal = wrapper.firstElementChild;
+    document.body.appendChild(mergeModal);
+  } else if (mergeModal.parentElement !== document.body) {
+    document.body.appendChild(mergeModal);
+  }
+
+  let backupModal = document.getElementById('backupJsonModal');
+  if (!backupModal) {
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = `
+      <div id="backupJsonModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-100">
+          <div class="p-5 border-b border-slate-200 bg-slate-100/80 flex justify-between items-center">
+            <div class="flex items-center gap-2">
+              <span class="text-xl">💾</span>
+              <h3 class="text-base font-bold text-slate-900">สำรองข้อมูลทั้งหมด (Backup JSON)</h3>
+            </div>
+            <button onclick="closeBackupJsonModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-full">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+          <div class="p-5 space-y-4 text-xs">
+            <p class="text-slate-600 leading-relaxed">
+              ระบบจะส่งออกข้อมูลทั้งหมดใน <strong>IndexedDB</strong> (ไฟล์ยอดขาย, ไฟล์ Dealer, ราคาต่อหน่วย, รายงานและรูปถ่าย Site Visit รวมถึงการตั้งค่ารวมโครงการ) เป็นไฟล์ <code>.json</code> เพื่อใช้กู้คืนหรือย้ายเครื่องได้ทันที
+            </p>
+            <div id="backupSummaryStats" class="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5 text-slate-700">
+              <div>กำลังตรวจสอบข้อมูลในเครื่อง...</div>
+            </div>
+            <label class="flex items-center gap-2 p-2.5 rounded-lg border border-purple-200 bg-purple-50/50 cursor-pointer">
+              <input type="checkbox" id="backupIncludeApiKeyCheckbox" class="rounded text-purple-600 focus:ring-purple-500 w-3.5 h-3.5">
+              <span class="text-purple-950 font-medium">รวม Gemini API Key ไว้ในไฟล์ Backup ด้วย</span>
+            </label>
+          </div>
+          <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
+            <button onclick="closeBackupJsonModal()" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded-lg transition-colors">
+              ยกเลิก
+            </button>
+            <button onclick="executeBackupJsonDownload()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-1.5">
+              <span>💾</span> ดาวน์โหลดไฟล์ Backup (.json)
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+    backupModal = wrapper.firstElementChild;
+    document.body.appendChild(backupModal);
+  } else if (backupModal.parentElement !== document.body) {
+    document.body.appendChild(backupModal);
+  }
+}
+
+// ==========================================
+// Merge Projects Feature (เฉพาะ Actual และ Report Site Visit)
+// ==========================================
+function updateActiveMergeBadge() {
+  const badge = document.getElementById('activeMergeCountBadge');
+  if (!badge) return;
+  const rules = Array.isArray(projectMergeRules) ? projectMergeRules : [];
+  const totalMergedSources = rules.reduce((sum, r) => sum + (r.sources ? r.sources.length : 0), 0);
+  if (totalMergedSources > 0) {
+    badge.textContent = String(totalMergedSources);
+    badge.classList.remove('hidden');
+  } else {
+    badge.classList.add('hidden');
+  }
+}
+
+function openMergeProjectsModal() {
+  ensureMergeAndBackupModalsExist();
+  const modal = document.getElementById('mergeProjectsModal');
+  if (!modal) return;
+  populateMergeModalControls();
+  renderActiveMergeRules();
+  modal.classList.remove('hidden');
+}
+
+function closeMergeProjectsModal() {
+  const modal = document.getElementById('mergeProjectsModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function populateMergeModalControls() {
+  const mainSelect = document.getElementById('mergeMainProjectSelect');
+  if (!mainSelect) return;
+
+  const prevVal = mainSelect.value;
+  let opts = '<option value="">-- กรุณาเลือกโครงการหลัก --</option>';
+  (allProjectListGlobal || []).forEach(p => {
+    opts += `<option value="${escapeHtml(p.key)}">${escapeHtml(p.name)} (${escapeHtml(p.id || '-')})</option>`;
+  });
+  mainSelect.innerHTML = opts;
+
+  const hasPrevOption = Array.from(mainSelect.options).some(opt => opt.value === prevVal);
+  if (prevVal && hasPrevOption) {
+    mainSelect.value = prevVal;
+  } else if (selectedMasterProject !== 'all') {
+    const hasMasterOption = Array.from(mainSelect.options).some(opt => opt.value === selectedMasterProject);
+    if (hasMasterOption) mainSelect.value = selectedMasterProject;
+  }
+
+  renderMergeSourceProjectsList();
+}
+
+function renderMergeSourceProjectsList() {
+  const container = document.getElementById('mergeSourceProjectsList');
+  const mainSelect = document.getElementById('mergeMainProjectSelect');
+  const searchInput = document.getElementById('mergeSourceSearchInput');
+  if (!container || !mainSelect) return;
+
+  const mainKey = mainSelect.value;
+  const searchTerm = (searchInput?.value || '').toLowerCase().trim();
+
+  if (!allProjectListGlobal || allProjectListGlobal.length === 0) {
+    container.innerHTML = `<div class="text-slate-400 text-center py-4">ยังไม่มีรายการโครงการ กรุณาอัปโหลดไฟล์ยอดขายหลักก่อน</div>`;
+    return;
+  }
+
+  if (!mainKey) {
+    container.innerHTML = `<div class="text-slate-400 text-center py-4">กรุณาเลือกโครงการหลัก (Main Project) ด้านบนก่อน</div>`;
+    return;
+  }
+
+  const existingRuleForMain = projectMergeRules.find(r => r.mainKey === mainKey);
+  const preselectedSourceKeys = new Set(existingRuleForMain ? existingRuleForMain.sources.map(s => s.key) : []);
+
+  const candidates = allProjectListGlobal.filter(p => {
+    if (p.key === mainKey) return false;
+    if (searchTerm) {
+      return (p.name || '').toLowerCase().includes(searchTerm) || (p.id || '').toLowerCase().includes(searchTerm);
+    }
+    return true;
+  });
+
+  if (candidates.length === 0) {
+    container.innerHTML = `<div class="text-slate-400 text-center py-4">ไม่พบโครงการรองตามคำค้นหา</div>`;
+    return;
+  }
+
+  container.innerHTML = candidates.map(p => {
+    const isChecked = preselectedSourceKeys.has(p.key);
+    const otherRule = projectMergeRules.find(r => r.mainKey !== mainKey && r.sources.some(s => s.key === p.key));
+    const statusTag = otherRule
+      ? `<span class="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">รวมอยู่กับ: ${escapeHtml(otherRule.mainName)}</span>`
+      : '';
+
+    return `
+      <label class="flex items-center justify-between gap-2 p-2 rounded-lg bg-white hover:bg-teal-50/60 border border-slate-100 cursor-pointer transition-colors">
+        <div class="flex items-center gap-2 min-w-0">
+          <input type="checkbox" name="mergeSourceCheckbox" value="${escapeHtml(p.key)}" ${isChecked ? 'checked' : ''}
+                 class="rounded text-teal-600 focus:ring-teal-500 w-3.5 h-3.5">
+          <div class="truncate">
+            <div class="font-medium text-slate-800 truncate">${escapeHtml(p.name)}</div>
+            <div class="text-[10px] text-slate-400 font-mono">${escapeHtml(p.id || '-')}</div>
+          </div>
+        </div>
+        <div class="flex items-center gap-1.5 shrink-0">
+          ${statusTag}
+        </div>
+      </label>
+    `;
+  }).join('');
+}
+
+async function syncSiteVisitsWithMergeRules() {
+  try {
+    if (!db && typeof initIndexedDB === 'function') await initIndexedDB();
+    const allVisits = await dbGetAll('site_visits');
+    if (!allVisits || allVisits.length === 0) return;
+
+    for (const visit of allVisits) {
+      const baseId = visit.origProjectId !== undefined ? visit.origProjectId : visit.projectId;
+      const baseName = visit.origProjectName !== undefined ? visit.origProjectName : visit.projectName;
+      const target = typeof getMergedTargetProjectInfo === 'function'
+        ? getMergedTargetProjectInfo(baseId, baseName)
+        : null;
+
+      if (target) {
+        const nextId = target.id || baseId;
+        const nextName = target.name || baseName;
+        if (visit.projectId !== nextId || visit.projectName !== nextName || visit.origProjectId === undefined) {
+          await dbSave('site_visits', {
+            ...visit,
+            origProjectId: baseId || '',
+            origProjectName: baseName || '',
+            projectId: nextId,
+            projectName: nextName
+          });
+        }
+      } else if (visit.origProjectId !== undefined || visit.origProjectName !== undefined) {
+        // กรณียกเลิกการรวม ให้คืนค่ากลับไปยังโครงการเดิม
+        const restoredId = visit.origProjectId || visit.projectId;
+        const restoredName = visit.origProjectName || visit.projectName;
+        const cleanVisit = { ...visit, projectId: restoredId, projectName: restoredName };
+        delete cleanVisit.origProjectId;
+        delete cleanVisit.origProjectName;
+        await dbSave('site_visits', cleanVisit);
+      }
+    }
+
+    if (typeof loadSiteVisitLogsFromDB === 'function') {
+      await loadSiteVisitLogsFromDB();
+    }
+  } catch (err) {
+    console.error('Error syncing site visits with merge rules:', err);
+  }
+}
+
+async function confirmMergeProjects() {
+  const mainSelect = document.getElementById('mergeMainProjectSelect');
+  const mainKey = mainSelect ? mainSelect.value : '';
+  if (!mainKey) {
+    alert('กรุณาเลือกโครงการหลัก (Main Project) ก่อน');
+    return;
+  }
+
+  const mainProjObj = allProjectListGlobal.find(p => p.key === mainKey);
+  if (!mainProjObj) return;
+
+  const checkedBoxes = Array.from(document.querySelectorAll('input[name="mergeSourceCheckbox"]:checked'));
+  const selectedSourceKeys = checkedBoxes.map(cb => cb.value);
+
+  if (selectedSourceKeys.length === 0) {
+    alert('กรุณาเลือกโครงการรองอย่างน้อย 1 โครงการเพื่อนำมารวม');
+    return;
+  }
+
+  // ตัดโครงการรองที่เลือกออกจากการเป็น Main ของกฎอื่น (ป้องกันการซ้อนทับ) และลบออกจากกลุ่มอื่น
+  projectMergeRules = projectMergeRules
+    .filter(r => r.mainKey !== mainKey && !selectedSourceKeys.includes(r.mainKey))
+    .map(r => ({
+      ...r,
+      sources: r.sources.filter(s => !selectedSourceKeys.includes(s.key) && s.key !== mainKey)
+    }))
+    .filter(r => r.sources.length > 0);
+
+  const sourceObjects = selectedSourceKeys
+    .map(k => allProjectListGlobal.find(p => p.key === k))
+    .filter(Boolean)
+    .map(p => ({ key: p.key, id: p.id, name: p.name }));
+
+  projectMergeRules.push({
+    mainKey: mainProjObj.key,
+    mainId: mainProjObj.id,
+    mainName: mainProjObj.name,
+    sources: sourceObjects
+  });
+
+  if (!db && typeof initIndexedDB === 'function') await initIndexedDB();
+  await dbSave('settings', { key: 'project_merge_rules', value: projectMergeRules });
+  updateActiveMergeBadge();
+
+  await syncSiteVisitsWithMergeRules();
+  if (salesRawRows) processSalesCSV(salesRawRows);
+  if (dealerRawRows) processDealerCSV(dealerRawRows);
+
+  renderMergeSourceProjectsList();
+  renderActiveMergeRules();
+  alert(`รวมข้อมูล Actual และ Report Site Visit จาก ${sourceObjects.length} โครงการ เข้าสู่ "${mainProjObj.name}" เรียบร้อยแล้ว`);
+}
+
+function renderActiveMergeRules() {
+  const container = document.getElementById('activeMergeRulesContainer');
+  if (!container) return;
+
+  if (!projectMergeRules || projectMergeRules.length === 0) {
+    container.innerHTML = `<div class="text-slate-400 text-center py-3 bg-slate-50 rounded-lg border border-slate-100">ยังไม่มีการตั้งค่าการรวมโครงการ</div>`;
+    return;
+  }
+
+  container.innerHTML = projectMergeRules.map(rule => {
+    const jsMainKey = escapeJsString(rule.mainKey);
+    return `
+      <div class="p-3 rounded-xl bg-teal-50/50 border border-teal-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+        <div class="space-y-1">
+          <div class="font-bold text-teal-950 flex items-center gap-1.5">
+            <span class="bg-teal-600 text-white text-[10px] px-1.5 py-0.5 rounded">Main</span>
+            <span>${escapeHtml(rule.mainName)} (${escapeHtml(rule.mainId || '-')})</span>
+          </div>
+          <div class="flex flex-wrap gap-1 items-center text-[11px] text-slate-600">
+            <span class="font-medium text-slate-500">รวมจาก:</span>
+            ${rule.sources.map(s => `
+              <span class="bg-white border border-teal-200 text-teal-800 px-2 py-0.5 rounded-md">
+                ${escapeHtml(s.name)} (${escapeHtml(s.id || '-')})
+              </span>
+            `).join('')}
+          </div>
+        </div>
+        <button type="button" onclick="removeMergeRule('${jsMainKey}')" class="px-2.5 py-1 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 rounded-lg text-[11px] font-semibold shrink-0 transition-colors">
+          ยกเลิกการรวม
+        </button>
+      </div>
+    `;
+  }).join('');
+}
+
+async function removeMergeRule(mainKey) {
+  projectMergeRules = projectMergeRules.filter(r => r.mainKey !== mainKey);
+  if (!db && typeof initIndexedDB === 'function') await initIndexedDB();
+  await dbSave('settings', { key: 'project_merge_rules', value: projectMergeRules });
+  updateActiveMergeBadge();
+
+  await syncSiteVisitsWithMergeRules();
+  if (salesRawRows) processSalesCSV(salesRawRows);
+  if (dealerRawRows) processDealerCSV(dealerRawRows);
+
+  renderMergeSourceProjectsList();
+  renderActiveMergeRules();
+}
+
+async function clearAllMergeRules() {
+  if (!projectMergeRules || projectMergeRules.length === 0) return;
+  if (!confirm('ต้องการยกเลิกการรวมข้อมูลโครงการทั้งหมดใช่หรือไม่?')) return;
+
+  projectMergeRules = [];
+  if (!db && typeof initIndexedDB === 'function') await initIndexedDB();
+  await dbSave('settings', { key: 'project_merge_rules', value: projectMergeRules });
+  updateActiveMergeBadge();
+
+  await syncSiteVisitsWithMergeRules();
+  if (salesRawRows) processSalesCSV(salesRawRows);
+  if (dealerRawRows) processDealerCSV(dealerRawRows);
+
+  renderMergeSourceProjectsList();
+  renderActiveMergeRules();
+}
+
+// ==========================================
+// Backup & Restore JSON Feature
+// ==========================================
+async function openBackupJsonModal() {
+  ensureMergeAndBackupModalsExist();
+  const modal = document.getElementById('backupJsonModal');
+  const statsBox = document.getElementById('backupSummaryStats');
+  if (!modal) return;
+
+  modal.classList.remove('hidden');
+  if (statsBox) {
+    try {
+      if (!db && typeof initIndexedDB === 'function') await initIndexedDB();
+      const cachedFiles = await dbGetAll('cached_files');
+      const siteVisits = await dbGetAll('site_visits');
+      const hasSales = cachedFiles.some(f => f.fileType === 'sales_data') || Boolean(salesRawRows);
+      const hasDealer = cachedFiles.some(f => f.fileType === 'dealer_data') || Boolean(dealerRawRows);
+      const hasPrice = cachedFiles.some(f => f.fileType === 'price_data');
+
+      statsBox.innerHTML = `
+        <div class="flex justify-between"><span>📊 ไฟล์ยอดขายหลัก (Sales CSV):</span><span class="font-bold ${hasSales ? 'text-emerald-600' : 'text-slate-400'}">${hasSales ? 'มีข้อมูล' : 'ไม่มี'}</span></div>
+        <div class="flex justify-between"><span>🏬 ไฟล์ผู้แทนจำหน่าย (Dealer CSV):</span><span class="font-bold ${hasDealer ? 'text-emerald-600' : 'text-slate-400'}">${hasDealer ? 'มีข้อมูล' : 'ไม่มี'}</span></div>
+        <div class="flex justify-between"><span>🏷️ ไฟล์ราคาต่อหน่วย (Price CSV):</span><span class="font-bold ${hasPrice ? 'text-emerald-600' : 'text-slate-400'}">${hasPrice ? 'มีข้อมูล' : 'ค่าเริ่มต้นระบบ'}</span></div>
+        <div class="flex justify-between"><span>📸 รายงานและรูปภาพ Site Visit:</span><span class="font-bold text-sky-700">${siteVisits.length} รายการ</span></div>
+        <div class="flex justify-between"><span>🔗 กฎการรวมโครงการ:</span><span class="font-bold text-teal-700">${(projectMergeRules || []).length} กลุ่ม</span></div>
+      `;
+    } catch (err) {
+      statsBox.innerHTML = `<div class="text-rose-600">ไม่สามารถอ่านสถิติฐานข้อมูลได้: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+}
+
+function closeBackupJsonModal() {
+  const modal = document.getElementById('backupJsonModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+async function executeBackupJsonDownload() {
+  try {
+    if (!db && typeof initIndexedDB === 'function') await initIndexedDB();
+    const includeApiKey = Boolean(document.getElementById('backupIncludeApiKeyCheckbox')?.checked);
+    const settingsAll = await dbGetAll('settings');
+    const cachedFilesAll = await dbGetAll('cached_files');
+    const siteVisitsAll = await dbGetAll('site_visits');
+
+    const filteredSettings = includeApiKey
+      ? settingsAll
+      : settingsAll.filter(item => item.key !== 'gemini_api_key');
+
+    const backupPayload = {
+      appName: 'SalesAnalyticsDashboard',
+      dbName: DB_NAME,
+      dbVersion: DB_VERSION,
+      exportedAt: new Date().toISOString(),
+      stores: {
+        settings: filteredSettings,
+        cached_files: cachedFilesAll,
+        site_visits: siteVisitsAll
+      }
+    };
+
+    const jsonString = JSON.stringify(backupPayload, null, 2);
+    const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `SalesAnalytics_Backup_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    closeBackupJsonModal();
+  } catch (err) {
+    alert('เกิดข้อผิดพลาดในการสร้างไฟล์ Backup JSON: ' + err.message);
+  }
+}
+
+function handleRestoreJsonFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async function(e) {
+    try {
+      const parsed = JSON.parse(e.target.result);
+      if (!parsed || typeof parsed !== 'object' || !parsed.stores) {
+        alert('รูปแบบไฟล์ Backup JSON ไม่ถูกต้อง กรุณาเลือกไฟล์ที่ส่งออกจากแอปนี้เท่านั้น');
+        return;
+      }
+
+      const stores = parsed.stores;
+      const settingsList = Array.isArray(stores.settings) ? stores.settings : [];
+      const cachedFilesList = Array.isArray(stores.cached_files) ? stores.cached_files : [];
+      const siteVisitsList = Array.isArray(stores.site_visits) ? stores.site_visits : [];
+
+      const exportDateLabel = parsed.exportedAt ? new Date(parsed.exportedAt).toLocaleString('th-TH') : '-';
+      const ok = confirm(
+        `ยืนยันการกู้คืนข้อมูลจากไฟล์ Backup?\n` +
+        `• วันที่สำรองข้อมูล: ${exportDateLabel}\n` +
+        `• ไฟล์ข้อมูลที่แคชไว้: ${cachedFilesList.length} ชุด\n` +
+        `• รายงานและรูปภาพ Site Visit: ${siteVisitsList.length} รายการ\n\n` +
+        `⚠️ ข้อมูลปัจจุบันในเครื่องจะถูกแทนที่ด้วยข้อมูลจากไฟล์นี้`
+      );
+      if (!ok) return;
+
+      if (!db && typeof initIndexedDB === 'function') await initIndexedDB();
+
+      // ล้างข้อมูลเดิมและบันทึกข้อมูลใหม่ลง IndexedDB
+      await dbClearStore('settings');
+      await dbClearStore('cached_files');
+      await dbClearStore('site_visits');
+
+      for (const item of settingsList) {
+        if (item && item.key) await dbSave('settings', item);
+      }
+      for (const item of cachedFilesList) {
+        if (item && item.fileType) await dbSave('cached_files', item);
+      }
+      for (const item of siteVisitsList) {
+        if (item) await dbSave('site_visits', item);
+      }
+
+      // โหลด State ใหม่ทั้งหมดจาก IndexedDB
+      const savedKey = await dbGet('settings', 'gemini_api_key');
+      geminiApiKey = savedKey || '';
+      if (typeof updateApiKeyStatusUI === 'function') {
+        updateApiKeyStatusUI();
+      }
+
+      const savedMergeRules = await dbGet('settings', 'project_merge_rules');
+      projectMergeRules = Array.isArray(savedMergeRules) ? savedMergeRules : [];
+      updateActiveMergeBadge();
+
+      const cachedPrice = await dbGet('cached_files', 'price_data');
+      if (cachedPrice && cachedPrice.data) {
+        processPriceCSV(cachedPrice.data);
+      }
+
+      const cachedSales = await dbGet('cached_files', 'sales_data');
+      if (cachedSales && cachedSales.data) {
+        salesRawRows = cachedSales.data;
+        processSalesCSV(salesRawRows);
+      }
+
+      const cachedDealer = await dbGet('cached_files', 'dealer_data');
+      if (cachedDealer && cachedDealer.data) {
+        dealerRawRows = cachedDealer.data;
+        processDealerCSV(dealerRawRows);
+      }
+
+      if (typeof loadSiteVisitLogsFromDB === 'function') {
+        await loadSiteVisitLogsFromDB();
+      }
+
+      alert('กู้คืนข้อมูล (Restore JSON) เรียบร้อยแล้ว');
+    } catch (err) {
+      alert('ไม่สามารถอ่านไฟล์ JSON ได้: ' + err.message);
+    }
+  };
+  reader.readAsText(file, 'utf-8');
+}
+
+// ผูกฟังก์ชันเข้ากับ window และ Event Delegation ระดับ document เพื่อให้ปุ่มทำงานได้เสมอ
+window.openMergeProjectsModal = openMergeProjectsModal;
+window.closeMergeProjectsModal = closeMergeProjectsModal;
+window.renderMergeSourceProjectsList = renderMergeSourceProjectsList;
+window.confirmMergeProjects = confirmMergeProjects;
+window.removeMergeRule = removeMergeRule;
+window.clearAllMergeRules = clearAllMergeRules;
+window.openBackupJsonModal = openBackupJsonModal;
+window.closeBackupJsonModal = closeBackupJsonModal;
+window.executeBackupJsonDownload = executeBackupJsonDownload;
+window.handleRestoreJsonFile = handleRestoreJsonFile;
+
+document.addEventListener('click', (e) => {
+  const mergeBtn = e.target.closest('#openMergeProjectsModalBtn');
+  if (mergeBtn) {
+    e.preventDefault();
+    openMergeProjectsModal();
+    return;
+  }
+  const backupBtn = e.target.closest('#openBackupModalBtn');
+  if (backupBtn) {
+    e.preventDefault();
+    openBackupJsonModal();
+    return;
+  }
+});
+
+// ==========================================
 // Initialization & Global Event Listeners
 // ==========================================
-document.addEventListener('DOMContentLoaded', async () => {
+async function initializeSalesEngineApp() {
+  ensureMergeAndBackupModalsExist();
+
   try {
     await initIndexedDB();
     const savedKey = await dbGet('settings', 'gemini_api_key');
     if (savedKey) {
       geminiApiKey = savedKey;
-      updateApiKeyStatusUI();
+      if (typeof updateApiKeyStatusUI === 'function') {
+        updateApiKeyStatusUI();
+      }
+    }
+
+    const savedMergeRules = await dbGet('settings', 'project_merge_rules');
+    if (Array.isArray(savedMergeRules)) {
+      projectMergeRules = savedMergeRules;
+      updateActiveMergeBadge();
     }
 
     const cachedPrice = await dbGet('cached_files', 'price_data');
@@ -881,7 +1517,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       processDealerCSV(dealerRawRows);
     }
 
-    await loadSiteVisitLogsFromDB();
+    if (typeof loadSiteVisitLogsFromDB === 'function') {
+      await loadSiteVisitLogsFromDB();
+    }
   } catch (err) {
     console.error('DB Initialization error:', err);
   }
@@ -892,6 +1530,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     masterProjectSelect.addEventListener('change', (e) => {
       selectedMasterProject = e.target.value;
       applyMasterProjectFilter();
+    });
+  }
+
+  // Restore JSON File Input Listener
+  const restoreJsonFileInput = document.getElementById('restoreJsonFileInput');
+  if (restoreJsonFileInput) {
+    restoreJsonFileInput.addEventListener('change', (e) => {
+      if (e.target.files.length) {
+        handleRestoreJsonFile(e.target.files[0]);
+        e.target.value = '';
+      }
     });
   }
 
@@ -1069,7 +1718,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // Modal Backdrop Click
-  const modals = ['geminiKeyModal', 'siteVisitModal', 'crossSellModal', 'projectModal', 'imageLightboxModal', 'editSiteVisitModal'];
+  const modals = ['geminiKeyModal', 'siteVisitModal', 'crossSellModal', 'projectModal', 'imageLightboxModal', 'editSiteVisitModal', 'mergeProjectsModal', 'backupJsonModal'];
   modals.forEach(mId => {
     const el = document.getElementById(mId);
     if (el) {
@@ -1080,4 +1729,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
     }
   });
-});
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initializeSalesEngineApp);
+} else {
+  initializeSalesEngineApp();
+}
