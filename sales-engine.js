@@ -4,7 +4,7 @@
  * ปรับปรุง:
  * 1. ยอดขายจริงรวม (Total Act) และอัตราความสำเร็จคำนวณจากไฟล์ Dealer CSV (matchedDealerList) โดยตรง
  * 2. รองรับปุ่ม "รวมข้อมูลโครงการ" (ย้ายเฉพาะยอด Actual และรายงาน Site Visit เข้าโครงการหลัก)
- * 3. รองรับปุ่ม "Backup JSON" และ "Restore JSON" สำหรับสำรอง/กู้คืนข้อมูลทั้งระบบใน IndexedDB
+ * 3. รองรับปุ่ม "Backup JSON" และ "Restore JSON" แบบเลือกหมวดหมู่ได้ และประกอบไฟล์แบบแบ่งส่วน (Chunked Blob Assembly)
  * 4. รับประกันการแสดงผล Modal ทั้ง 2 ชุดและผูก Event ครบทุกช่องทาง
  */
 
@@ -978,23 +978,68 @@ function ensureMergeAndBackupModalsExist() {
           <div class="p-5 border-b border-slate-200 bg-slate-100/80 flex justify-between items-center">
             <div class="flex items-center gap-2">
               <span class="text-xl">💾</span>
-              <h3 class="text-base font-bold text-slate-900">สำรองข้อมูลทั้งหมด (Backup JSON)</h3>
+              <h3 class="text-base font-bold text-slate-900">สำรองข้อมูล (Backup JSON)</h3>
             </div>
             <button onclick="closeBackupJsonModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-full">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
             </button>
           </div>
-          <div class="p-5 space-y-4 text-xs">
+          <div class="p-5 space-y-3.5 text-xs">
             <p class="text-slate-600 leading-relaxed">
-              ระบบจะส่งออกข้อมูลทั้งหมดใน <strong>IndexedDB</strong> (ไฟล์ยอดขาย, ไฟล์ Dealer, ราคาต่อหน่วย, รายงานและรูปถ่าย Site Visit รวมถึงการตั้งค่ารวมโครงการ) เป็นไฟล์ <code>.json</code> เพื่อใช้กู้คืนหรือย้ายเครื่องได้ทันที
+              เลือกหมวดข้อมูลจาก <strong>IndexedDB</strong> ที่ต้องการส่งออกเป็นไฟล์ <code>.json</code> เพื่อลดขนาดไฟล์และใช้กู้คืนเฉพาะส่วนได้ทันที
             </p>
-            <div id="backupSummaryStats" class="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5 text-slate-700">
-              <div>กำลังตรวจสอบข้อมูลในเครื่อง...</div>
+            <div class="flex justify-between items-center pb-1 border-b border-slate-100">
+              <span class="font-bold text-slate-700">เลือกหมวดข้อมูลที่ต้องการ Backup:</span>
+              <div class="flex gap-2">
+                <button type="button" onclick="toggleAllBackupCategories(true)" class="text-[11px] text-indigo-600 hover:underline font-medium">เลือกทั้งหมด</button>
+                <span class="text-slate-300">|</span>
+                <button type="button" onclick="toggleAllBackupCategories(false)" class="text-[11px] text-slate-500 hover:underline">ล้างการเลือก</button>
+              </div>
             </div>
-            <label class="flex items-center gap-2 p-2.5 rounded-lg border border-purple-200 bg-purple-50/50 cursor-pointer">
-              <input type="checkbox" id="backupIncludeApiKeyCheckbox" class="rounded text-purple-600 focus:ring-purple-500 w-3.5 h-3.5">
-              <span class="text-purple-950 font-medium">รวม Gemini API Key ไว้ในไฟล์ Backup ด้วย</span>
-            </label>
+            <div id="backupCategoriesContainer" class="space-y-2 max-h-64 overflow-y-auto custom-scrollbar pr-0.5">
+              <label class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100/80 border border-slate-200 cursor-pointer transition-colors">
+                <div class="flex items-center gap-2.5">
+                  <input type="checkbox" id="backupCatSales" class="backup-cat-checkbox rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5">
+                  <span class="font-medium text-slate-800">📊 ไฟล์ยอดขายหลัก (Sales CSV)</span>
+                </div>
+                <span id="backupStatSales" class="text-[11px] font-bold text-slate-400">กำลังตรวจ...</span>
+              </label>
+              <label class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100/80 border border-slate-200 cursor-pointer transition-colors">
+                <div class="flex items-center gap-2.5">
+                  <input type="checkbox" id="backupCatDealer" class="backup-cat-checkbox rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5">
+                  <span class="font-medium text-slate-800">🏬 ไฟล์ผู้แทนจำหน่าย (Dealer CSV)</span>
+                </div>
+                <span id="backupStatDealer" class="text-[11px] font-bold text-slate-400">กำลังตรวจ...</span>
+              </label>
+              <label class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100/80 border border-slate-200 cursor-pointer transition-colors">
+                <div class="flex items-center gap-2.5">
+                  <input type="checkbox" id="backupCatPrice" class="backup-cat-checkbox rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5">
+                  <span class="font-medium text-slate-800">🏷️ ตารางราคาต่อหน่วย (Price CSV)</span>
+                </div>
+                <span id="backupStatPrice" class="text-[11px] font-bold text-slate-400">กำลังตรวจ...</span>
+              </label>
+              <label class="flex items-center justify-between p-2.5 rounded-xl bg-sky-50/60 hover:bg-sky-50 border border-sky-200 cursor-pointer transition-colors">
+                <div class="flex items-center gap-2.5">
+                  <input type="checkbox" id="backupCatSiteVisits" class="backup-cat-checkbox rounded text-sky-600 focus:ring-sky-500 w-3.5 h-3.5">
+                  <span class="font-medium text-sky-950">📸 รายงานและรูปภาพ Site Visit</span>
+                </div>
+                <span id="backupStatSiteVisits" class="text-[11px] font-bold text-sky-700">กำลังตรวจ...</span>
+              </label>
+              <label class="flex items-center justify-between p-2.5 rounded-xl bg-teal-50/60 hover:bg-teal-50 border border-teal-200 cursor-pointer transition-colors">
+                <div class="flex items-center gap-2.5">
+                  <input type="checkbox" id="backupCatMergeRules" class="backup-cat-checkbox rounded text-teal-600 focus:ring-teal-500 w-3.5 h-3.5">
+                  <span class="font-medium text-teal-950">🔗 กฎการรวมข้อมูลโครงการ</span>
+                </div>
+                <span id="backupStatMergeRules" class="text-[11px] font-bold text-teal-700">กำลังตรวจ...</span>
+              </label>
+              <label class="flex items-center justify-between p-2.5 rounded-xl bg-purple-50/50 hover:bg-purple-50 border border-purple-200 cursor-pointer transition-colors">
+                <div class="flex items-center gap-2.5">
+                  <input type="checkbox" id="backupCatApiKey" class="rounded text-purple-600 focus:ring-purple-500 w-3.5 h-3.5">
+                  <span class="font-medium text-purple-950">🔑 Gemini API Key</span>
+                </div>
+                <span id="backupStatApiKey" class="text-[11px] font-bold text-slate-400">กำลังตรวจ...</span>
+              </label>
+            </div>
           </div>
           <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
             <button onclick="closeBackupJsonModal()" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded-lg transition-colors">
@@ -1290,34 +1335,115 @@ async function clearAllMergeRules() {
 }
 
 // ==========================================
-// Backup & Restore JSON Feature
+// Backup & Restore JSON Feature (เลือกหมวดหมู่ได้ + Chunked Blob Assembly)
 // ==========================================
+const BACKUP_CATEGORY_LABELS = {
+  sales: 'ไฟล์ยอดขายหลัก (Sales CSV)',
+  dealer: 'ไฟล์ผู้แทนจำหน่าย (Dealer CSV)',
+  price: 'ตารางราคาต่อหน่วย (Price CSV)',
+  site_visits: 'รายงานและรูปภาพ Site Visit',
+  merge_rules: 'กฎการรวมข้อมูลโครงการ',
+  api_key: 'Gemini API Key'
+};
+
+function toggleAllBackupCategories(shouldSelect) {
+  const boxes = document.querySelectorAll('.backup-cat-checkbox');
+  boxes.forEach(cb => {
+    cb.checked = Boolean(shouldSelect);
+  });
+  const apiBox = document.getElementById('backupCatApiKey');
+  if (apiBox && !shouldSelect) {
+    apiBox.checked = false;
+  }
+}
+
 async function openBackupJsonModal() {
   ensureMergeAndBackupModalsExist();
   const modal = document.getElementById('backupJsonModal');
-  const statsBox = document.getElementById('backupSummaryStats');
   if (!modal) return;
 
   modal.classList.remove('hidden');
-  if (statsBox) {
-    try {
-      if (!db && typeof initIndexedDB === 'function') await initIndexedDB();
-      const cachedFiles = await dbGetAll('cached_files');
-      const siteVisits = await dbGetAll('site_visits');
-      const hasSales = cachedFiles.some(f => f.fileType === 'sales_data') || Boolean(salesRawRows);
-      const hasDealer = cachedFiles.some(f => f.fileType === 'dealer_data') || Boolean(dealerRawRows);
-      const hasPrice = cachedFiles.some(f => f.fileType === 'price_data');
 
-      statsBox.innerHTML = `
-        <div class="flex justify-between"><span>📊 ไฟล์ยอดขายหลัก (Sales CSV):</span><span class="font-bold ${hasSales ? 'text-emerald-600' : 'text-slate-400'}">${hasSales ? 'มีข้อมูล' : 'ไม่มี'}</span></div>
-        <div class="flex justify-between"><span>🏬 ไฟล์ผู้แทนจำหน่าย (Dealer CSV):</span><span class="font-bold ${hasDealer ? 'text-emerald-600' : 'text-slate-400'}">${hasDealer ? 'มีข้อมูล' : 'ไม่มี'}</span></div>
-        <div class="flex justify-between"><span>🏷️ ไฟล์ราคาต่อหน่วย (Price CSV):</span><span class="font-bold ${hasPrice ? 'text-emerald-600' : 'text-slate-400'}">${hasPrice ? 'มีข้อมูล' : 'ค่าเริ่มต้นระบบ'}</span></div>
-        <div class="flex justify-between"><span>📸 รายงานและรูปภาพ Site Visit:</span><span class="font-bold text-sky-700">${siteVisits.length} รายการ</span></div>
-        <div class="flex justify-between"><span>🔗 กฎการรวมโครงการ:</span><span class="font-bold text-teal-700">${(projectMergeRules || []).length} กลุ่ม</span></div>
-      `;
-    } catch (err) {
-      statsBox.innerHTML = `<div class="text-rose-600">ไม่สามารถอ่านสถิติฐานข้อมูลได้: ${escapeHtml(err.message)}</div>`;
-    }
+  try {
+    if (!db && typeof initIndexedDB === 'function') await initIndexedDB();
+    const cachedFiles = await dbGetAll('cached_files');
+    const siteVisits = await dbGetAll('site_visits');
+    const savedKey = await dbGet('settings', 'gemini_api_key');
+
+    const salesRec = cachedFiles.find(f => f.fileType === 'sales_data');
+    const dealerRec = cachedFiles.find(f => f.fileType === 'dealer_data');
+    const priceRec = cachedFiles.find(f => f.fileType === 'price_data');
+
+    const hasSales = Boolean(salesRec && Array.isArray(salesRec.data) && salesRec.data.length > 0);
+    const hasDealer = Boolean(dealerRec && Array.isArray(dealerRec.data) && dealerRec.data.length > 0);
+    const hasPrice = Boolean(priceRec && Array.isArray(priceRec.data) && priceRec.data.length > 0);
+    const hasSiteVisits = Array.isArray(siteVisits) && siteVisits.length > 0;
+    const hasMergeRules = Array.isArray(projectMergeRules) && projectMergeRules.length > 0;
+    const hasApiKey = Boolean(savedKey || geminiApiKey);
+
+    const setCatState = (cbId, statId, isAvailable, availableText, emptyText, defaultChecked) => {
+      const cb = document.getElementById(cbId);
+      const stat = document.getElementById(statId);
+      if (cb) cb.checked = Boolean(defaultChecked);
+      if (stat) {
+        stat.textContent = isAvailable ? availableText : emptyText;
+        stat.className = isAvailable
+          ? 'text-[11px] font-bold text-emerald-600'
+          : 'text-[11px] font-medium text-slate-400';
+      }
+    };
+
+    setCatState(
+      'backupCatSales',
+      'backupStatSales',
+      hasSales,
+      `มีข้อมูล (${hasSales ? salesRec.data.length.toLocaleString() : 0} แถว)`,
+      'ไม่มีข้อมูล',
+      hasSales
+    );
+    setCatState(
+      'backupCatDealer',
+      'backupStatDealer',
+      hasDealer,
+      `มีข้อมูล (${hasDealer ? dealerRec.data.length.toLocaleString() : 0} แถว)`,
+      'ไม่มีข้อมูล',
+      hasDealer
+    );
+    setCatState(
+      'backupCatPrice',
+      'backupStatPrice',
+      hasPrice,
+      `มีข้อมูล (${hasPrice ? priceRec.data.length.toLocaleString() : 0} แถว)`,
+      'ใช้ค่าเริ่มต้นระบบ',
+      hasPrice
+    );
+    setCatState(
+      'backupCatSiteVisits',
+      'backupStatSiteVisits',
+      hasSiteVisits,
+      `${siteVisits.length} รายการ`,
+      '0 รายการ',
+      hasSiteVisits
+    );
+    setCatState(
+      'backupCatMergeRules',
+      'backupStatMergeRules',
+      hasMergeRules,
+      `${projectMergeRules.length} กลุ่ม`,
+      '0 กลุ่ม',
+      hasMergeRules
+    );
+    // API Key ไม่ติ๊กเป็นค่าเริ่มต้นเพื่อความปลอดภัย
+    setCatState(
+      'backupCatApiKey',
+      'backupStatApiKey',
+      hasApiKey,
+      'บันทึกไว้แล้ว',
+      'ไม่ได้ระบุ',
+      false
+    );
+  } catch (err) {
+    console.error('Error inspecting IndexedDB for backup:', err);
   }
 }
 
@@ -1328,30 +1454,93 @@ function closeBackupJsonModal() {
 
 async function executeBackupJsonDownload() {
   try {
+    const selectedCategories = [];
+    if (document.getElementById('backupCatSales')?.checked) selectedCategories.push('sales');
+    if (document.getElementById('backupCatDealer')?.checked) selectedCategories.push('dealer');
+    if (document.getElementById('backupCatPrice')?.checked) selectedCategories.push('price');
+    if (document.getElementById('backupCatSiteVisits')?.checked) selectedCategories.push('site_visits');
+    if (document.getElementById('backupCatMergeRules')?.checked) selectedCategories.push('merge_rules');
+    if (document.getElementById('backupCatApiKey')?.checked) selectedCategories.push('api_key');
+
+    if (selectedCategories.length === 0) {
+      alert('กรุณาเลือกหมวดข้อมูลที่ต้องการสำรองอย่างน้อย 1 หมวด');
+      return;
+    }
+
     if (!db && typeof initIndexedDB === 'function') await initIndexedDB();
-    const includeApiKey = Boolean(document.getElementById('backupIncludeApiKeyCheckbox')?.checked);
     const settingsAll = await dbGetAll('settings');
     const cachedFilesAll = await dbGetAll('cached_files');
-    const siteVisitsAll = await dbGetAll('site_visits');
+    const siteVisitsAll = selectedCategories.includes('site_visits') ? await dbGetAll('site_visits') : [];
 
-    const filteredSettings = includeApiKey
-      ? settingsAll
-      : settingsAll.filter(item => item.key !== 'gemini_api_key');
+    // คัดกรองเฉพาะ settings ตามหมวดที่เลือก
+    const filteredSettings = settingsAll.filter(item => {
+      if (!item || !item.key) return false;
+      if (item.key === 'project_merge_rules') return selectedCategories.includes('merge_rules');
+      if (item.key === 'gemini_api_key') return selectedCategories.includes('api_key');
+      return false;
+    });
 
-    const backupPayload = {
-      appName: 'SalesAnalyticsDashboard',
-      dbName: DB_NAME,
-      dbVersion: DB_VERSION,
-      exportedAt: new Date().toISOString(),
-      stores: {
-        settings: filteredSettings,
-        cached_files: cachedFilesAll,
-        site_visits: siteVisitsAll
+    // คัดกรองเฉพาะ cached_files ตามหมวดที่เลือก
+    const filteredCachedFiles = cachedFilesAll.filter(item => {
+      if (!item || !item.fileType) return false;
+      if (item.fileType === 'sales_data') return selectedCategories.includes('sales');
+      if (item.fileType === 'dealer_data') return selectedCategories.includes('dealer');
+      if (item.fileType === 'price_data') return selectedCategories.includes('price');
+      return false;
+    });
+
+    // แยกประกอบ JSON เป็นชิ้นส่วนย่อย (Chunks) เพื่อป้องกันข้อผิดพลาด Invalid string length เมื่อมีรูปภาพและไฟล์ขนาดใหญ่
+    const chunks = [];
+    chunks.push(
+      `{"appName":"SalesAnalyticsDashboard","dbName":${JSON.stringify(DB_NAME)},"dbVersion":${JSON.stringify(DB_VERSION)},"exportedAt":${JSON.stringify(new Date().toISOString())},"selectedCategories":${JSON.stringify(selectedCategories)},"stores":{`
+    );
+
+    // 1. Store: settings
+    chunks.push(`"settings":${JSON.stringify(filteredSettings)},`);
+
+    // 2. Store: cached_files (แปลงทีละแถวข้อมูลเพื่อไม่ให้เกิด String ก้อนใหญ่)
+    chunks.push('"cached_files":[');
+    for (let i = 0; i < filteredCachedFiles.length; i++) {
+      if (i > 0) chunks.push(',');
+      const item = filteredCachedFiles[i];
+      if (item && Array.isArray(item.data)) {
+        const { data, ...restMeta } = item;
+        const metaJson = JSON.stringify(restMeta);
+        const prefix = metaJson === '{}' ? '{' : metaJson.slice(0, -1) + ',';
+        chunks.push(prefix + '"data":[');
+        for (let r = 0; r < data.length; r++) {
+          if (r > 0) chunks.push(',');
+          chunks.push(JSON.stringify(data[r]));
+        }
+        chunks.push(']}');
+      } else {
+        chunks.push(JSON.stringify(item));
       }
-    };
+    }
+    chunks.push('],');
 
-    const jsonString = JSON.stringify(backupPayload, null, 2);
-    const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8' });
+    // 3. Store: site_visits (แปลงทีละรายการและแยกรูปภาพ Base64 ทีละรูป)
+    chunks.push('"site_visits":[');
+    for (let i = 0; i < siteVisitsAll.length; i++) {
+      if (i > 0) chunks.push(',');
+      const visit = siteVisitsAll[i];
+      if (visit && Array.isArray(visit.images)) {
+        const { images, ...visitMeta } = visit;
+        const vMetaJson = JSON.stringify(visitMeta);
+        const prefix = vMetaJson === '{}' ? '{' : vMetaJson.slice(0, -1) + ',';
+        chunks.push(prefix + '"images":[');
+        for (let imgIdx = 0; imgIdx < images.length; imgIdx++) {
+          if (imgIdx > 0) chunks.push(',');
+          chunks.push(JSON.stringify(images[imgIdx]));
+        }
+        chunks.push(']}');
+      } else {
+        chunks.push(JSON.stringify(visit));
+      }
+    }
+    chunks.push(']}}');
+
+    const blob = new Blob(chunks, { type: 'application/json;charset=utf-8' });
     const url = URL.createObjectURL(blob);
 
     const a = document.createElement('a');
@@ -1360,7 +1549,7 @@ async function executeBackupJsonDownload() {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
 
     closeBackupJsonModal();
   } catch (err) {
@@ -1368,25 +1557,82 @@ async function executeBackupJsonDownload() {
   }
 }
 
-function handleRestoreJsonFile(file) {
+async function handleRestoreJsonFile(file) {
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = async function(e) {
+  try {
+    // ใช้ Response(file).json() เพื่ออ่านไฟล์ Backup ขนาดใหญ่แบบ Stream โดยไม่ติดขีดจำกัดความยาว String
+    let parsed;
     try {
-      const parsed = JSON.parse(e.target.result);
-      if (!parsed || typeof parsed !== 'object' || !parsed.stores) {
-        alert('รูปแบบไฟล์ Backup JSON ไม่ถูกต้อง กรุณาเลือกไฟล์ที่ส่งออกจากแอปนี้เท่านั้น');
-        return;
-      }
+      parsed = await new Response(file).json();
+    } catch (streamErr) {
+      const rawText = await file.text();
+      parsed = JSON.parse(rawText);
+    }
 
-      const stores = parsed.stores;
-      const settingsList = Array.isArray(stores.settings) ? stores.settings : [];
-      const cachedFilesList = Array.isArray(stores.cached_files) ? stores.cached_files : [];
-      const siteVisitsList = Array.isArray(stores.site_visits) ? stores.site_visits : [];
+    if (!parsed || typeof parsed !== 'object' || !parsed.stores) {
+      alert('รูปแบบไฟล์ Backup JSON ไม่ถูกต้อง กรุณาเลือกไฟล์ที่ส่งออกจากแอปนี้เท่านั้น');
+      return;
+    }
 
-      const exportDateLabel = parsed.exportedAt ? new Date(parsed.exportedAt).toLocaleString('th-TH') : '-';
+    const stores = parsed.stores;
+    const settingsList = Array.isArray(stores.settings) ? stores.settings : [];
+    const cachedFilesList = Array.isArray(stores.cached_files) ? stores.cached_files : [];
+    const siteVisitsList = Array.isArray(stores.site_visits) ? stores.site_visits : [];
+    const hasSelectedCategories = Array.isArray(parsed.selectedCategories);
+
+    const exportDateLabel = parsed.exportedAt ? new Date(parsed.exportedAt).toLocaleString('th-TH') : '-';
+
+    if (hasSelectedCategories) {
+      const catNamesText = parsed.selectedCategories
+        .map(c => `• ${BACKUP_CATEGORY_LABELS[c] || c}`)
+        .join('\n');
+
       const ok = confirm(
-        `ยืนยันการกู้คืนข้อมูลจากไฟล์ Backup?\n` +
+        `ยืนยันการกู้คืนข้อมูลเฉพาะหมวดที่มีในไฟล์ Backup?\n` +
+        `• วันที่สำรองข้อมูล: ${exportDateLabel}\n` +
+        `• หมวดที่จะถูกกู้คืนและเขียนทับ:\n${catNamesText}\n\n` +
+        `ℹ️ หมวดข้อมูลอื่นที่ไม่ได้อยู่ในไฟล์นี้จะยังคงอยู่ตามเดิม`
+      );
+      if (!ok) return;
+
+      if (!db && typeof initIndexedDB === 'function') await initIndexedDB();
+      const cats = new Set(parsed.selectedCategories);
+
+      if (cats.has('sales')) {
+        const salesItem = cachedFilesList.find(f => f && f.fileType === 'sales_data');
+        if (salesItem) await dbSave('cached_files', salesItem);
+        else await dbDelete('cached_files', 'sales_data');
+      }
+      if (cats.has('dealer')) {
+        const dealerItem = cachedFilesList.find(f => f && f.fileType === 'dealer_data');
+        if (dealerItem) await dbSave('cached_files', dealerItem);
+        else await dbDelete('cached_files', 'dealer_data');
+      }
+      if (cats.has('price')) {
+        const priceItem = cachedFilesList.find(f => f && f.fileType === 'price_data');
+        if (priceItem) await dbSave('cached_files', priceItem);
+        else await dbDelete('cached_files', 'price_data');
+      }
+      if (cats.has('site_visits')) {
+        await dbClearStore('site_visits');
+        for (const item of siteVisitsList) {
+          if (item) await dbSave('site_visits', item);
+        }
+      }
+      if (cats.has('merge_rules')) {
+        const mergeItem = settingsList.find(s => s && s.key === 'project_merge_rules');
+        if (mergeItem) await dbSave('settings', mergeItem);
+        else await dbDelete('settings', 'project_merge_rules');
+      }
+      if (cats.has('api_key')) {
+        const keyItem = settingsList.find(s => s && s.key === 'gemini_api_key');
+        if (keyItem) await dbSave('settings', keyItem);
+        else await dbDelete('settings', 'gemini_api_key');
+      }
+    } else {
+      // รองรับไฟล์ Backup แบบเต็มรูปแบบเดิม
+      const ok = confirm(
+        `ยืนยันการกู้คืนข้อมูลทั้งหมดจากไฟล์ Backup?\n` +
         `• วันที่สำรองข้อมูล: ${exportDateLabel}\n` +
         `• ไฟล์ข้อมูลที่แคชไว้: ${cachedFilesList.length} ชุด\n` +
         `• รายงานและรูปภาพ Site Visit: ${siteVisitsList.length} รายการ\n\n` +
@@ -1396,7 +1642,6 @@ function handleRestoreJsonFile(file) {
 
       if (!db && typeof initIndexedDB === 'function') await initIndexedDB();
 
-      // ล้างข้อมูลเดิมและบันทึกข้อมูลใหม่ลง IndexedDB
       await dbClearStore('settings');
       await dbClearStore('cached_files');
       await dbClearStore('site_visits');
@@ -1410,45 +1655,46 @@ function handleRestoreJsonFile(file) {
       for (const item of siteVisitsList) {
         if (item) await dbSave('site_visits', item);
       }
-
-      // โหลด State ใหม่ทั้งหมดจาก IndexedDB
-      const savedKey = await dbGet('settings', 'gemini_api_key');
-      geminiApiKey = savedKey || '';
-      if (typeof updateApiKeyStatusUI === 'function') {
-        updateApiKeyStatusUI();
-      }
-
-      const savedMergeRules = await dbGet('settings', 'project_merge_rules');
-      projectMergeRules = Array.isArray(savedMergeRules) ? savedMergeRules : [];
-      updateActiveMergeBadge();
-
-      const cachedPrice = await dbGet('cached_files', 'price_data');
-      if (cachedPrice && cachedPrice.data) {
-        processPriceCSV(cachedPrice.data);
-      }
-
-      const cachedSales = await dbGet('cached_files', 'sales_data');
-      if (cachedSales && cachedSales.data) {
-        salesRawRows = cachedSales.data;
-        processSalesCSV(salesRawRows);
-      }
-
-      const cachedDealer = await dbGet('cached_files', 'dealer_data');
-      if (cachedDealer && cachedDealer.data) {
-        dealerRawRows = cachedDealer.data;
-        processDealerCSV(dealerRawRows);
-      }
-
-      if (typeof loadSiteVisitLogsFromDB === 'function') {
-        await loadSiteVisitLogsFromDB();
-      }
-
-      alert('กู้คืนข้อมูล (Restore JSON) เรียบร้อยแล้ว');
-    } catch (err) {
-      alert('ไม่สามารถอ่านไฟล์ JSON ได้: ' + err.message);
     }
-  };
-  reader.readAsText(file, 'utf-8');
+
+    // โหลด State ใหม่ทั้งหมดจาก IndexedDB
+    const savedKey = await dbGet('settings', 'gemini_api_key');
+    geminiApiKey = savedKey || '';
+    if (typeof updateApiKeyStatusUI === 'function') {
+      updateApiKeyStatusUI();
+    }
+
+    const savedMergeRules = await dbGet('settings', 'project_merge_rules');
+    projectMergeRules = Array.isArray(savedMergeRules) ? savedMergeRules : [];
+    updateActiveMergeBadge();
+
+    await syncSiteVisitsWithMergeRules();
+
+    const cachedPrice = await dbGet('cached_files', 'price_data');
+    if (cachedPrice && cachedPrice.data) {
+      processPriceCSV(cachedPrice.data);
+    }
+
+    const cachedSales = await dbGet('cached_files', 'sales_data');
+    if (cachedSales && cachedSales.data) {
+      salesRawRows = cachedSales.data;
+      processSalesCSV(salesRawRows);
+    }
+
+    const cachedDealer = await dbGet('cached_files', 'dealer_data');
+    if (cachedDealer && cachedDealer.data) {
+      dealerRawRows = cachedDealer.data;
+      processDealerCSV(dealerRawRows);
+    }
+
+    if (typeof loadSiteVisitLogsFromDB === 'function') {
+      await loadSiteVisitLogsFromDB();
+    }
+
+    alert('กู้คืนข้อมูล (Restore JSON) เรียบร้อยแล้ว');
+  } catch (err) {
+    alert('ไม่สามารถอ่านไฟล์ JSON ได้: ' + err.message);
+  }
 }
 
 // ผูกฟังก์ชันเข้ากับ window และ Event Delegation ระดับ document เพื่อให้ปุ่มทำงานได้เสมอ
@@ -1458,6 +1704,7 @@ window.renderMergeSourceProjectsList = renderMergeSourceProjectsList;
 window.confirmMergeProjects = confirmMergeProjects;
 window.removeMergeRule = removeMergeRule;
 window.clearAllMergeRules = clearAllMergeRules;
+window.toggleAllBackupCategories = toggleAllBackupCategories;
 window.openBackupJsonModal = openBackupJsonModal;
 window.closeBackupJsonModal = closeBackupJsonModal;
 window.executeBackupJsonDownload = executeBackupJsonDownload;
