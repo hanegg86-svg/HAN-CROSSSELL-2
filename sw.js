@@ -1,10 +1,10 @@
 /**
  * Service Worker - sw.js
  * จัดการ Caching ด้วยกลยุทธ์ Network-First สำหรับโหมด Offline PWA
- * อัปเดตเวอร์ชันแคชเป็น v11 เพื่อรองรับ Mobile Compact Header และ Weekly Select Export Excel
+ * อัปเดตเวอร์ชันแคชเป็น v12 เพื่อบังคับล้างแคชเก่าและดึง sales-engine.js ตัวล่าสุดมาใช้งานทันที
  */
 
-const CACHE_NAME = 'sales-analytics-v11';
+const CACHE_NAME = 'sales-analytics-v12';
 
 // รายการไฟล์ทั้งหมดในโปรเจกต์ที่ต้องแคชไว้ใช้งานออฟไลน์
 const STATIC_ASSETS = [

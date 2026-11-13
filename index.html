@@ -211,11 +211,31 @@
               </h2>
             </div>
             <p class="text-xs text-sky-700 mt-1">
-              แนบรูปภาพหน้างานบันทึกเก็บทันที (ไม่ผ่าน AI) หรือกดปุ่ม AI เพื่อสกัดข้อความอัตโนมัติ (กรองตามโครงการหลักด้านบน)
+              แนบรูปภาพหน้างานบันทึกเก็บทันที (ไม่ผ่าน AI) หรือกดปุ่ม AI เพื่อสกัดข้อความอัตโนมัติ (กรองตามโครงการหลักด้านบนและเดือนที่เลือก)
             </p>
           </div>
           
           <div class="flex flex-wrap items-center gap-2">
+            <!-- ตัวกรองเดือนแบบเลือกได้หลายเดือน (Multi-Select Month Filter) -->
+            <div class="relative">
+              <button id="weeklySectionMonthDropdownBtn" type="button" class="inline-flex items-center gap-1.5 bg-white hover:bg-sky-50 text-sky-900 border border-sky-300 text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm transition-all">
+                <span>📅</span>
+                <span id="weeklySectionMonthDropdownLabel">เลือกเดือนทั้งหมด</span>
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+              </button>
+              <div id="weeklySectionMonthDropdownMenu" class="hidden absolute left-0 sm:right-0 sm:left-auto mt-2 w-64 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-3 space-y-2">
+                <div class="flex justify-between items-center pb-2 border-b border-slate-100">
+                  <span class="text-xs font-bold text-slate-700">กรองเดือนรายงาน Weekly</span>
+                  <div class="flex gap-2">
+                    <button type="button" onclick="selectAllWeeklyMonths(true)" class="text-[11px] text-sky-600 hover:underline font-medium">เลือกทั้งหมด</button>
+                    <span class="text-slate-300">|</span>
+                    <button type="button" onclick="selectAllWeeklyMonths(false)" class="text-[11px] text-slate-500 hover:underline">ล้างค่า</button>
+                  </div>
+                </div>
+                <div id="weeklySectionMonthCheckboxList" class="max-h-52 overflow-y-auto custom-scrollbar space-y-1.5 text-xs text-slate-700"></div>
+              </div>
+            </div>
+
             <!-- ปุ่มแนบรูปหน้างานโดยตรง (ไม่ต้องวิเคราะห์ AI) -->
             <label for="weeklyDirectFileInput" class="cursor-pointer inline-flex items-center gap-1.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm transition-all">
               <span>📷</span> เพิ่มรูปหน้างาน (บันทึกทันที)
@@ -226,7 +246,7 @@
               <span>🤖</span> สแกนด้วย AI
             </button>
 
-            <!-- ปุ่ม Export Excel เลือกรายการงานอัปเดตประจำสัปดาห์ (2 คอลัมน์: ชื่อโครงการ + ข้อความอัปเดตงาน) -->
+            <!-- ปุ่ม Export Excel เลือกรายการงานอัปเดตประจำสัปดาห์ (3 คอลัมน์ + สรุปด้วย AI) -->
             <button id="openWeeklySelectExportModalBtn" type="button" onclick="openWeeklySelectExportModal()" class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm transition-all">
               <span>📋</span> Export Weekly (เลือกงาน)
             </button>
@@ -1081,15 +1101,15 @@
     </div>
   </div>
 
-  <!-- Modal 9: Weekly Site Update Select & Export Excel Modal -->
+  <!-- Modal 9: Weekly Site Update Select & Export Excel Modal (3 คอลัมน์ + สรุปด้วย gemini-3.5-flash-lite) -->
   <div id="weeklySelectExportModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-100">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-100">
       <div class="p-5 border-b border-indigo-100 bg-indigo-50/80 flex justify-between items-center">
         <div class="flex items-center gap-2">
           <span class="text-xl">📋</span>
           <div>
             <h3 class="text-base font-bold text-indigo-950">Export รายงาน Updated Site Weekly (.xlsx)</h3>
-            <p class="text-xs text-indigo-700">เลือกรายการงานอัปเดตที่ต้องการ (ตาราง 2 คอลัมน์: ชื่อโครงการ และ ข้อความอัปเดตงาน)</p>
+            <p class="text-xs text-indigo-700">ตาราง 3 คอลัมน์: 1.ชื่อโครงการ | 2.สรุปการทำงานอาทิตย์ที่ผ่านมา | 3.แผนงานที่จะต้องทำต่อในสัปดาห์ต่อไป</p>
           </div>
         </div>
         <button onclick="closeWeeklySelectExportModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-full">
@@ -1098,9 +1118,33 @@
       </div>
 
       <div class="p-5 overflow-y-auto space-y-3 custom-scrollbar text-xs flex-1">
+        <!-- แถบค้นหา + ตัวกรองเดือนแบบเลือกหลายเดือน + ปุ่มเลือกทั้งหมด -->
         <div class="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-2 pb-2 border-b border-slate-100">
-          <input type="text" id="weeklyExportSearchInput" oninput="renderWeeklyExportItemsList()" placeholder="ค้นหาชื่อโครงการ, วันที่ หรือข้อความอัปเดต..."
-                 class="text-xs px-3 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white w-full sm:w-64">
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="text" id="weeklyExportSearchInput" oninput="renderWeeklyExportItemsList()" placeholder="ค้นหาชื่อโครงการ, วันที่ หรือข้อความ..."
+                   class="text-xs px-3 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white w-full sm:w-56">
+            
+            <!-- Multi-Select Month Filter ภายใน Modal -->
+            <div class="relative">
+              <button id="weeklyModalMonthDropdownBtn" type="button" class="inline-flex items-center gap-1.5 bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-200 text-xs font-semibold px-2.5 py-1.5 rounded-lg shadow-sm transition-all">
+                <span>📅</span>
+                <span id="weeklyModalMonthDropdownLabel">เลือกเดือนทั้งหมด</span>
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+              </button>
+              <div id="weeklyModalMonthDropdownMenu" class="hidden absolute left-0 mt-2 w-60 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-3 space-y-2">
+                <div class="flex justify-between items-center pb-2 border-b border-slate-100">
+                  <span class="text-xs font-bold text-slate-700">เลือกเดือน (1 หรือหลายเดือน)</span>
+                  <div class="flex gap-2">
+                    <button type="button" onclick="selectAllWeeklyMonths(true)" class="text-[11px] text-sky-600 hover:underline font-medium">เลือกทั้งหมด</button>
+                    <span class="text-slate-300">|</span>
+                    <button type="button" onclick="selectAllWeeklyMonths(false)" class="text-[11px] text-slate-500 hover:underline">ล้างค่า</button>
+                  </div>
+                </div>
+                <div id="weeklyModalMonthCheckboxList" class="max-h-48 overflow-y-auto custom-scrollbar space-y-1.5 text-xs text-slate-700"></div>
+              </div>
+            </div>
+          </div>
+
           <div class="flex items-center justify-between sm:justify-end gap-2">
             <span id="weeklyExportSelectedCount" class="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md">เลือก 0 รายการ</span>
             <button type="button" onclick="toggleAllWeeklyExportItems(true)" class="text-[11px] text-indigo-600 hover:underline font-semibold">เลือกทั้งหมด</button>
@@ -1109,29 +1153,64 @@
           </div>
         </div>
 
-        <div id="weeklyExportItemsList" class="space-y-2 max-h-80 overflow-y-auto custom-scrollbar pr-0.5">
+        <!-- รายการกล่องรายงานให้เลือก -->
+        <div id="weeklyExportItemsList" class="space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-0.5">
           <div class="text-slate-400 text-center py-6">กำลังโหลดรายการรายงานหน้างาน...</div>
+        </div>
+
+        <!-- กล่องพรีวิวและแก้ไขผลลัพธ์จาก AI (gemini-3.5-flash-lite) -->
+        <div id="weeklyAiSummaryPreviewBox" class="hidden p-4 rounded-xl bg-purple-50/70 border border-purple-200 space-y-3">
+          <div class="flex justify-between items-center">
+            <span class="font-bold text-purple-950 flex items-center gap-1.5">
+              <span>✨</span> ผลสรุปรวมข้อความจาก AI (gemini-3.5-flash-lite) — แก้ไขข้อความก่อน Export ได้
+            </span>
+            <button type="button" onclick="hideWeeklyAiSummaryPreview()" class="text-[11px] text-slate-500 hover:text-rose-600 hover:underline">ปิดกล่องสรุป AI</button>
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">1. ชื่อโครงการ:</label>
+            <input type="text" id="aiWeeklyProjectInput" class="w-full px-3 py-1.5 border border-purple-200 rounded-lg bg-white text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-purple-500">
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block font-semibold text-slate-700 mb-1">2. สรุปการทำงานอาทิตย์ที่ผ่านมา:</label>
+              <textarea id="aiWeeklyPastWorkTextarea" rows="4" class="w-full px-3 py-2 border border-purple-200 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500 leading-relaxed"></textarea>
+            </div>
+            <div>
+              <label class="block font-semibold text-slate-700 mb-1">3. แผนงานที่จะต้องทำต่อในสัปดาห์ต่อไป:</label>
+              <textarea id="aiWeeklyNextPlanTextarea" rows="4" class="w-full px-3 py-2 border border-purple-200 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500 leading-relaxed"></textarea>
+            </div>
+          </div>
+          <div class="flex justify-end">
+            <button type="button" onclick="exportAiSummarizedWeeklyExcel()" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-1.5">
+              <span>📥</span> Export Excel จากผลสรุป AI (1 แถวรวม)
+            </button>
+          </div>
         </div>
       </div>
 
-      <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
-        <button onclick="closeWeeklySelectExportModal()" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded-lg transition-colors">
-          ยกเลิก
+      <div class="p-4 border-t border-slate-100 bg-slate-50 flex flex-wrap justify-between items-center gap-2">
+        <button id="aiSummarizeWeeklyBtn" type="button" onclick="summarizeSelectedWeeklyWithAI()" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-1.5">
+          <span>🤖</span> ให้ AI สรุปรวมข้อความ (gemini-3.5-flash-lite)
         </button>
-        <button onclick="executeWeeklySelectedExcelExport()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-1.5">
-          <span>📥</span> Export Excel ที่เลือก
-        </button>
+        <div class="flex gap-2">
+          <button onclick="closeWeeklySelectExportModal()" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded-lg transition-colors">
+            ยกเลิก
+          </button>
+          <button onclick="executeWeeklySelectedExcelExport()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-1.5">
+            <span>📥</span> Export Excel ที่เลือก (แยกแถว)
+          </button>
+        </div>
       </div>
     </div>
   </div>
 
   <!-- 6 Modular App Scripts -->
-  <script src="db.js?v=11"></script>
-  <script src="state.js?v=11"></script>
-  <script src="dealer.js?v=11"></script>
-  <script src="forecast.js?v=11"></script>
-  <script src="site-visit.js?v=11"></script>
-  <script src="sales-engine.js?v=11"></script>
+  <script src="db.js?v=12"></script>
+  <script src="state.js?v=12"></script>
+  <script src="dealer.js?v=12"></script>
+  <script src="forecast.js?v=12"></script>
+  <script src="site-visit.js?v=12"></script>
+  <script src="sales-engine.js?v=12"></script>
 
   <!-- PWA Service Worker Registration -->
   <script>
