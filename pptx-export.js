@@ -2,6 +2,7 @@
  * PowerPoint Export Module (pptx-export.js)
  * สร้างไฟล์ PowerPoint (.pptx) ด้วย PptxGenJS แบบ Widescreen 16:9
  * รองรับการเลือกโครงการแบบ Multi-Select (1 โครงการ, หลายโครงการ หรือทั้งหมด)
+ * ดึงตัวกรองช่วงเดือนและกลุ่มสินค้าจากหน้าจอมาสร้างกราฟอย่างแม่นยำ (รองรับการเลือกเดือนแรกสุด index 0)
  * และแยกส่งออกระหว่าง "Site Report (รายงานหน้างานและรูปถ่าย)" และ "กราฟวิเคราะห์และ KPI อื่นๆ"
  */
 
@@ -254,48 +255,69 @@ async function getFilteredSiteVisitsForPptx() {
   return [...list].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 }
 
+function getSelectElementOptionText(selectId) {
+  const el = document.getElementById(selectId);
+  if (!el || el.selectedIndex < 0 || !el.options[el.selectedIndex]) return '';
+  return String(el.options[el.selectedIndex].text || '').trim();
+}
+
 /**
- * รวบรวมโครงสร้างกราฟวิเคราะห์ทั้ง 5 กราฟที่มีข้อมูลในระบบ
+ * รวบรวมโครงสร้างกราฟวิเคราะห์ทั้ง 5 กราฟที่มีข้อมูลในระบบ พร้อมระบุช่วงเวลาที่ Filter อยู่บนหัวสไลด์
  */
 function collectAvailableChartConfigs() {
   const unitText = getUnitSuffix();
   const hasParsedRows = Array.isArray(parsedDataRowsGlobal) && parsedDataRowsGlobal.length > 0;
   const hasForecastMonths = Array.isArray(availableForecastMonths) && availableForecastMonths.length > 0;
 
+  const dStartLabel = getSelectElementOptionText('dealerCompStartMonthSelect');
+  const dEndLabel = getSelectElementOptionText('dealerCompEndMonthSelect');
+  const dealerPeriodSuffix = (dStartLabel && dEndLabel)
+    ? ` | ช่วงเวลา: ${dStartLabel === dEndLabel ? dStartLabel : `${dStartLabel} - ${dEndLabel}`}`
+    : '';
+
+  const fStartLabel = getSelectElementOptionText('forecastStartSelect');
+  const fEndLabel = getSelectElementOptionText('forecastEndSelect');
+  const forecastRangeSuffix = (fStartLabel && fEndLabel)
+    ? ` | ช่วงเวลา: ${fStartLabel === fEndLabel ? fStartLabel : `${fStartLabel} - ${fEndLabel}`}`
+    : '';
+
+  const fSingleLabel = getSelectElementOptionText('forecastProjectSingleMonthSelect');
+  const forecastSingleSuffix = fSingleLabel ? ` | เดือนที่ดู: ${fSingleLabel}` : '';
+
   const candidates = [
     {
       id: 'dealerCompMonthlyChart',
       available: hasParsedRows && Array.isArray(allMonthHeadersGlobal) && allMonthHeadersGlobal.length > 0,
       title: `Ropp vs Dealer Actual รายเดือน (${unitText})`,
-      subtitle: 'เปรียบเทียบยอดโอกาส (Ropp) กับยอดขายจริงผ่านผู้แทนจำหน่าย (Dealer Actual) แยกรายเดือน',
+      subtitle: `เปรียบเทียบยอดโอกาส (Ropp) กับยอดขายจริงผ่าน Dealer แยกรายเดือน${dealerPeriodSuffix}`,
       category: 'Dealer Analytics'
     },
     {
       id: 'dealerCompProjectChart',
       available: hasParsedRows,
       title: `Ropp vs Dealer Actual ใน Top โครงการ (${unitText})`,
-      subtitle: 'เปรียบเทียบโอกาสและยอดขายจริงผ่าน Dealer รายโครงการสูงสุด 10 อันดับ (เฉพาะโครงการที่เลือก)',
+      subtitle: `เปรียบเทียบโอกาสและยอดขายจริงผ่าน Dealer รายโครงการสูงสุด 10 อันดับ${dealerPeriodSuffix}`,
       category: 'Dealer Analytics'
     },
     {
       id: 'dealerCompProductChart',
       available: hasParsedRows,
       title: `Ropp vs Dealer Actual รายกลุ่มสินค้า (${unitText})`,
-      subtitle: 'เปรียบเทียบโอกาสและยอดขายจริงผ่าน Dealer แยกตามกลุ่มสินค้าหลัก (เฉพาะโครงการที่เลือก)',
+      subtitle: `เปรียบเทียบโอกาสและยอดขายจริงผ่าน Dealer แยกตามกลุ่มสินค้าหลัก${dealerPeriodSuffix}`,
       category: 'Dealer Analytics'
     },
     {
       id: 'forecastProductChart',
       available: hasParsedRows && hasForecastMonths,
       title: `คาดการณ์ยอดขายล่วงหน้า รายกลุ่มสินค้า (${unitText})`,
-      subtitle: 'แผนโอกาสขายล่วงหน้า (Sales Forecast - Ropp) แยกตามกลุ่มสินค้า (เฉพาะโครงการที่เลือก)',
+      subtitle: `แผนโอกาสขายล่วงหน้า (Sales Forecast - Ropp) แยกตามกลุ่มสินค้า${forecastRangeSuffix}`,
       category: 'Sales Forecast'
     },
     {
       id: 'forecastProjectChart',
       available: hasParsedRows && hasForecastMonths,
       title: `คาดการณ์ยอดขายล่วงหน้า รายโครงการ (${unitText})`,
-      subtitle: 'Stacked Bar แสดงสัดส่วนกลุ่มสินค้าที่คาดการณ์ล่วงหน้าในแต่ละโครงการ (เฉพาะโครงการที่เลือก)',
+      subtitle: `Stacked Bar แสดงสัดส่วนกลุ่มสินค้าที่คาดการณ์ล่วงหน้าในแต่ละโครงการ${forecastSingleSuffix}`,
       category: 'Sales Forecast'
     }
   ];
@@ -304,7 +326,7 @@ function collectAvailableChartConfigs() {
 }
 
 /**
- * สร้างภาพ PNG พื้นหลังสีขาวจาก Chart.js บน Off-screen Canvas โดยกรองเฉพาะโครงการที่เลือก
+ * สร้างภาพ PNG พื้นหลังสีขาวจาก Chart.js บน Off-screen Canvas โดยกรองเฉพาะโครงการและช่วงเวลาที่เลือก
  */
 function renderOffscreenChartPngForSelectedProjects(chartId) {
   if (!parsedDataRowsGlobal || parsedDataRowsGlobal.length === 0) return null;
@@ -316,8 +338,11 @@ function renderOffscreenChartPngForSelectedProjects(chartId) {
   if (chartId === 'dealerCompMonthlyChart' || chartId === 'dealerCompProjectChart' || chartId === 'dealerCompProductChart') {
     const sMonth = document.getElementById('dealerCompStartMonthSelect');
     const eMonth = document.getElementById('dealerCompEndMonthSelect');
-    let startIdx = sMonth ? (parseInt(sMonth.value, 10) || 0) : 0;
-    let endIdx = eMonth ? (parseInt(eMonth.value, 10) || (allMonthHeadersGlobal.length - 1)) : (allMonthHeadersGlobal.length - 1);
+    const rawStart = sMonth ? parseInt(sMonth.value, 10) : NaN;
+    const rawEnd = eMonth ? parseInt(eMonth.value, 10) : NaN;
+
+    let startIdx = !Number.isNaN(rawStart) ? rawStart : 0;
+    let endIdx = !Number.isNaN(rawEnd) ? rawEnd : (allMonthHeadersGlobal.length - 1);
     if (startIdx > endIdx) [startIdx, endIdx] = [endIdx, startIdx];
 
     const selectedMonthHeaders = allMonthHeadersGlobal.slice(startIdx, endIdx + 1);
@@ -449,8 +474,13 @@ function renderOffscreenChartPngForSelectedProjects(chartId) {
   } else if (chartId === 'forecastProductChart') {
     const fStart = document.getElementById('forecastStartSelect');
     const fEnd = document.getElementById('forecastEndSelect');
-    const startIdx = fStart ? (parseInt(fStart.value, 10) || 0) : 0;
-    const endIdx = fEnd ? (parseInt(fEnd.value, 10) || Math.min(availableForecastMonths.length - 1, 2)) : Math.min(availableForecastMonths.length - 1, 2);
+    const rawFStart = fStart ? parseInt(fStart.value, 10) : NaN;
+    const rawFEnd = fEnd ? parseInt(fEnd.value, 10) : NaN;
+
+    let startIdx = !Number.isNaN(rawFStart) ? rawFStart : 0;
+    let endIdx = !Number.isNaN(rawFEnd) ? rawFEnd : Math.min(availableForecastMonths.length - 1, 2);
+    if (startIdx > endIdx) [startIdx, endIdx] = [endIdx, startIdx];
+
     const selectedMonths = availableForecastMonths.slice(startIdx, endIdx + 1);
     const forecastProducts = {};
 
@@ -502,7 +532,8 @@ function renderOffscreenChartPngForSelectedProjects(chartId) {
     };
   } else if (chartId === 'forecastProjectChart') {
     const fSingle = document.getElementById('forecastProjectSingleMonthSelect');
-    const selectedMonthIdx = fSingle ? (parseInt(fSingle.value, 10) || 0) : 0;
+    const rawFSingle = fSingle ? parseInt(fSingle.value, 10) : NaN;
+    const selectedMonthIdx = !Number.isNaN(rawFSingle) ? rawFSingle : 0;
     const targetMonth = availableForecastMonths[selectedMonthIdx];
     if (!targetMonth) return null;
 
