@@ -1,10 +1,10 @@
 /**
  * Service Worker - sw.js
  * จัดการ Caching ด้วยกลยุทธ์ Network-First สำหรับโหมด Offline PWA
- * อัปเดตเวอร์ชันแคชเป็น v16 และปรับรายการไฟล์สคริปต์เป็น ?v=15 ให้ตรงกับ index.html
+ * อัปเดตเวอร์ชันแคชเป็น v17 และปรับรายการไฟล์สคริปต์เป็น ?v=16 ให้ตรงกับ index.html
  */
 
-const CACHE_NAME = 'sales-analytics-v16';
+const CACHE_NAME = 'sales-analytics-v17';
 
 // รายการไฟล์ทั้งหมดในโปรเจกต์ที่ต้องแคชไว้ใช้งานออฟไลน์
 const STATIC_ASSETS = [
@@ -13,13 +13,13 @@ const STATIC_ASSETS = [
   './style.css',
   './manifest.json',
   './icon.png',
-  './db.js?v=15',
-  './state.js?v=15',
-  './dealer.js?v=15',
-  './forecast.js?v=15',
-  './site-visit.js?v=15',
-  './sales-engine.js?v=15',
-  './pptx-export.js?v=15',
+  './db.js?v=16',
+  './state.js?v=16',
+  './dealer.js?v=16',
+  './forecast.js?v=16',
+  './site-visit.js?v=16',
+  './sales-engine.js?v=16',
+  './pptx-export.js?v=16',
   'https://cdn.tailwindcss.com',
   'https://cdn.jsdelivr.net/npm/chart.js',
   'https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js',

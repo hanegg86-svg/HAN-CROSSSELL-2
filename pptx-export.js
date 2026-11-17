@@ -2,12 +2,26 @@
  * PowerPoint Export Module (pptx-export.js)
  * สร้างไฟล์ PowerPoint (.pptx) ด้วย PptxGenJS แบบ Widescreen 16:9
  * รองรับการเลือกโครงการแบบ Multi-Select (1 โครงการ, หลายโครงการ หรือทั้งหมด)
+ * ตัดชื่อโครงการที่ยาวเกิน 20 ตัวอักษรเหลือ 20 ตัวอักษรในหัวข้อสไลด์เพื่อไม่ให้ล้นขอบ
+ * รองรับตัวเลือก AI (gemini-3.5-flash-lite) สรุปรวม Site Report รายโครงการให้เหลือ 1 หน้าสไลด์เฉพาะตอนสร้างไฟล์ PPTX
+ * เพิ่มสไลด์ตาราง Matrix คาดการณ์ยอดขาย (โครงการ x กลุ่มสินค้า) โดยตัดรายการสินค้าและโครงการที่ไม่มี Forecast ออกอัตโนมัติ
  * ดึงตัวกรองช่วงเดือนและกลุ่มสินค้าจากหน้าจอมาสร้างกราฟอย่างแม่นยำ (รองรับการเลือกเดือนแรกสุด index 0)
- * และแยกส่งออกระหว่าง "Site Report (รายงานหน้างานและรูปถ่าย)" และ "กราฟวิเคราะห์และ KPI อื่นๆ"
+ * และแยกส่งออกระหว่าง "Site Report (รายงานหน้างานและรูปถ่าย)" และ "กราฟวิเคราะห์, ตารางคาดการณ์ และ KPI อื่นๆ"
  */
 
 let pptxAvailableProjectsList = []; // [{ key, id, name }]
 let selectedPptxProjectKeys = new Set();
+
+/**
+ * ตัดชื่อโครงการที่ยาวเกิน 20 ตัวอักษร ให้เหลือเฉพาะ 20 ตัวอักษรแรก
+ */
+function truncateProjectName20(name) {
+  const clean = String(name || '').trim();
+  if (clean.length > 20) {
+    return clean.slice(0, 20);
+  }
+  return clean;
+}
 
 function buildAvailableProjectsForPptx() {
   const map = new Map();
@@ -193,6 +207,9 @@ function isProjectSelectedForPptx(projId, projName, projKey = '') {
   return false;
 }
 
+/**
+ * สร้างข้อความสรุปชื่อโครงการที่เลือกสำหรับหัวข้อสไลด์ (ตัดชื่อแต่ละโครงการไม่เกิน 20 ตัวอักษร)
+ */
 function getSelectedProjectsSummaryLabel() {
   const total = pptxAvailableProjectsList.length;
   const count = selectedPptxProjectKeys.size;
@@ -207,12 +224,37 @@ function getSelectedProjectsSummaryLabel() {
   const selectedObjs = pptxAvailableProjectsList.filter(p => selectedPptxProjectKeys.has(p.key));
   if (selectedObjs.length === 1) {
     const p = selectedObjs[0];
-    return `${p.name}${p.id ? ` (${p.id})` : ''}`;
+    const shortName = truncateProjectName20(p.name);
+    return `${shortName}${p.id ? ` (${p.id})` : ''}`;
   }
   if (selectedObjs.length <= 3) {
-    return `เลือก ${selectedObjs.length} โครงการ: ${selectedObjs.map(p => p.name).join(', ')}`;
+    return `เลือก ${selectedObjs.length} โครงการ: ${selectedObjs.map(p => truncateProjectName20(p.name)).join(', ')}`;
   }
-  return `เลือก ${selectedObjs.length} โครงการ (${selectedObjs.slice(0, 2).map(p => p.name).join(', ')} และอีก ${selectedObjs.length - 2} โครงการ)`;
+  return `เลือก ${selectedObjs.length} โครงการ (${selectedObjs.slice(0, 2).map(p => truncateProjectName20(p.name)).join(', ')} และอีก ${selectedObjs.length - 2} โครงการ)`;
+}
+
+/**
+ * จัดกลุ่มรายการ Site Visit ตามโครงการ (1 กลุ่ม = 1 โครงการ)
+ */
+function groupVisitsByProjectForPptx(visits) {
+  const groupsMap = new Map();
+  (visits || []).forEach(v => {
+    const rawId = String(v.projectId || '').trim();
+    const rawName = String(v.projectName || 'ไม่ระบุชื่อโครงการ').trim();
+    const validId = (rawId && rawId !== '-' && rawId !== 'Unknown') ? rawId : '';
+    const groupKey = validId || rawName.toLowerCase();
+
+    if (!groupsMap.has(groupKey)) {
+      groupsMap.set(groupKey, {
+        groupKey,
+        projectId: validId,
+        projectName: rawName,
+        items: []
+      });
+    }
+    groupsMap.get(groupKey).items.push(v);
+  });
+  return Array.from(groupsMap.values());
 }
 
 /**
@@ -222,17 +264,27 @@ async function updatePptxExportPreviewStats() {
   const scopeLabelEl = document.getElementById('pptxScopeProjectLabel');
   const siteCountEl = document.getElementById('pptxPreviewSiteCount');
   const chartCountEl = document.getElementById('pptxPreviewChartCount');
+  const useAiSummary = Boolean(document.getElementById('pptxAiSummarizeSiteReportCheckbox')?.checked);
 
   if (scopeLabelEl) scopeLabelEl.textContent = getSelectedProjectsSummaryLabel();
 
   const visits = await getFilteredSiteVisitsForPptx();
   if (siteCountEl) {
-    siteCountEl.textContent = `${visits.length} รายการ (${visits.length} สไลด์)`;
+    if (useAiSummary && visits.length > 0) {
+      const groupedProjects = groupVisitsByProjectForPptx(visits);
+      siteCountEl.textContent = `${visits.length} รายการ (AI สรุปรวมเหลือ ${groupedProjects.length} สไลด์ / ${groupedProjects.length} โครงการ)`;
+    } else {
+      siteCountEl.textContent = `${visits.length} รายการ (${visits.length} สไลด์)`;
+    }
   }
 
   const availableCharts = collectAvailableChartConfigs();
+  const matrixData = computeForecastMatrixForPptx();
   if (chartCountEl) {
-    chartCountEl.textContent = `KPI + ${availableCharts.length} กราฟวิเคราะห์`;
+    const matrixLabel = matrixData
+      ? ` + ตารางคาดการณ์ (${matrixData.products.length} สินค้า)`
+      : '';
+    chartCountEl.textContent = `KPI + ${availableCharts.length} กราฟวิเคราะห์${matrixLabel}`;
   }
 }
 
@@ -253,6 +305,173 @@ async function getFilteredSiteVisitsForPptx() {
   list = list.filter(item => isProjectSelectedForPptx(item.projectId, item.projectName));
 
   return [...list].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+}
+
+/**
+ * ใช้ AI (gemini-3.5-flash-lite) สังเคราะห์รวมรายงานหน้างานหลายรายการของโครงการเดียวให้เหลือ 1 รายการสำหรับทำสไลด์ PPTX (1 โครงการ = 1 สไลด์)
+ */
+async function prepareSummarizedSiteVisitsForPptx(visits, statusTextEl) {
+  const groups = groupVisitsByProjectForPptx(visits);
+  const needsAi = groups.some(g => g.items.length > 1);
+
+  let activeKey = geminiApiKey;
+  if (!activeKey && typeof dbGet === 'function') {
+    if (!db && typeof initIndexedDB === 'function') await initIndexedDB();
+    activeKey = (await dbGet('settings', 'gemini_api_key')) || '';
+    geminiApiKey = activeKey;
+  }
+
+  if (needsAi && !activeKey) {
+    throw new Error('MISSING_GEMINI_API_KEY');
+  }
+
+  const finalSlidesData = [];
+
+  for (let i = 0; i < groups.length; i++) {
+    const group = groups[i];
+
+    // หากโครงการนี้มีแค่ 1 รายงาน ใช้ข้อมูลเดิมทันทีโดยไม่ต้องเรียก AI
+    if (group.items.length === 1) {
+      finalSlidesData.push(group.items[0]);
+      continue;
+    }
+
+    if (statusTextEl) {
+      statusTextEl.textContent = `กำลังให้ AI (gemini-3.5-flash-lite) สรุปโครงการ "${truncateProjectName20(group.projectName)}" (${i + 1}/${groups.length})...`;
+    }
+
+    // รวบรวมรูปภาพหน้างานจากทุกรายการย่อยของโครงการนี้ (ตัดรูปซ้ำออก)
+    const combinedImages = [];
+    const seenImageKeys = new Set();
+    group.items.forEach(item => {
+      const itemImgs = (item.images && item.images.length > 0)
+        ? item.images
+        : (item.imageData ? [{ base64Data: item.imageData, mimeType: item.mimeType || 'image/jpeg' }] : []);
+
+      itemImgs.forEach(imgObj => {
+        if (!imgObj || !imgObj.base64Data) return;
+        const cleanB64 = String(imgObj.base64Data).replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '');
+        const fingerprint = `${cleanB64.length}_${cleanB64.slice(0, 64)}`;
+        if (!seenImageKeys.has(fingerprint)) {
+          seenImageKeys.add(fingerprint);
+          combinedImages.push({
+            base64Data: cleanB64,
+            mimeType: imgObj.mimeType || 'image/jpeg'
+          });
+        }
+      });
+    });
+
+    const summarizedItem = await summarizeSingleProjectGroupWithAI(group, combinedImages, activeKey);
+    finalSlidesData.push(summarizedItem);
+  }
+
+  return finalSlidesData;
+}
+
+/**
+ * เรียกใช้โมเดล gemini-3.5-flash-lite เพื่อสรุปรวมรายงานหลายรายการของ 1 โครงการ
+ */
+async function summarizeSingleProjectGroupWithAI(group, combinedImages, apiKey) {
+  const rawReportsText = group.items.map((item, idx) => {
+    return `[รายงานย่อยที่ ${idx + 1}]
+- วันที่เข้าตรวจ: ${item.visitDate || '-'}
+- ผู้รับเหมา: ${item.contractor || '-'}
+- ระดับความเสี่ยง: ${item.riskLevel || 'Low'}
+- ความคืบหน้า & การใช้งานสินค้า: ${item.siteProgress || '-'}
+- แผนเรียกสินค้า (Material Forecast): ${item.materialForecast || '-'}
+- ปัญหา / ความเสี่ยง: ${item.issuesAndRisks || '-'}
+- สิ่งที่ต้องติดตามสัปดาห์หน้า: ${item.nextWeekActions || '-'}`;
+  }).join('\n\n---\n\n');
+
+  const promptText = `คุณคือผู้ช่วยวิศวกรและผู้จัดการฝ่ายขายโครงการก่อสร้าง (SCG B2B Sales) จงสังเคราะห์และสรุปรวมรายงานการเข้าเยี่ยมหน้างาน (Site Visit) จำนวน ${group.items.length} รายการต่อไปนี้ ซึ่งอยู่ภายใต้โครงการเดียวกันคือ "${group.projectName}" (${group.projectId || '-'}) ให้รวมเป็นรายงานสรุปฉบับเดียวที่กระชับ ชัดเจน ตัดข้อความที่ซ้ำซ้อนออก เพื่อนำไปจัดวางลงในสไลด์ PowerPoint 1 หน้า
+
+ตอบกลับเป็น JSON Object บริสุทธิ์เท่านั้น ตามโครงสร้างนี้:
+{
+  "contractor": "รายชื่อบริษัทผู้รับเหมาทั้งหมดที่เกี่ยวข้อง (หากมีหลายรายให้คั่นด้วยเครื่องหมายจุลภาค)",
+  "visitDate": "วันที่หรือช่วงวันที่เข้าตรวจ (เช่น 01/11/2026 - 15/11/2026)",
+  "siteProgress": "สรุปรวมความคืบหน้าหน้างานและการใช้งานสินค้าทั้งหมดอย่างกระชับ ชัดเจน (ความยาวพอเหมาะสำหรับ 1 สไลด์)",
+  "materialForecast": "สรุปรวมแผนเรียกสินค้า (Material Forecast) ทั้งหมดของโครงการนี้",
+  "issuesAndRisks": "สรุปรวมปัญหาและความเสี่ยงหน้างานทั้งหมด (หากไม่มีให้ระบุว่า หน้างานดำเนินไปตามแผนงานปกติ)",
+  "nextWeekActions": "สรุปรวมสิ่งที่ต้องติดตามต่อในสัปดาห์หน้าทั้งหมด",
+  "riskLevel": "ประเมินระดับความเสี่ยงภาพรวมสูงสุดของโครงการ (Low หรือ Medium หรือ High)"
+}
+
+ข้อมูลรายงานย่อยของโครงการ:
+${rawReportsText}`;
+
+  try {
+    // บังคับใช้โมเดล gemini-3.5-flash-lite เท่านั้น
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: promptText }] }],
+        generationConfig: {
+          temperature: 0.2,
+          responseMimeType: 'application/json'
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errText}`);
+    }
+
+    const resData = await response.json();
+    const rawReply = resData?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+    const cleanedJsonStr = rawReply.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+    const parsed = JSON.parse(cleanedJsonStr);
+
+    const validRisks = ['Low', 'Medium', 'High'];
+    const finalRisk = validRisks.includes(parsed.riskLevel) ? parsed.riskLevel : 'Low';
+
+    return {
+      projectId: group.projectId || '-',
+      projectName: group.projectName,
+      contractor: String(parsed.contractor || '-').trim(),
+      visitDate: String(parsed.visitDate || '-').trim(),
+      siteProgress: String(parsed.siteProgress || '-').trim(),
+      materialForecast: String(parsed.materialForecast || '-').trim(),
+      issuesAndRisks: String(parsed.issuesAndRisks || '-').trim(),
+      nextWeekActions: String(parsed.nextWeekActions || '-').trim(),
+      riskLevel: finalRisk,
+      images: combinedImages,
+      imageData: combinedImages.length > 0 ? combinedImages[0].base64Data : '',
+      mimeType: combinedImages.length > 0 ? combinedImages[0].mimeType : ''
+    };
+  } catch (err) {
+    console.error(`AI summarization fallback for project ${group.projectName}:`, err);
+    // กรณีเรียก AI ไม่สำเร็จ ให้รวมข้อความแบบต่อบรรทัดอัตโนมัติเพื่อไม่ให้การ Export หยุดชะงัก
+    const uniqueValues = (arr) => Array.from(new Set(arr.map(x => String(x || '').trim()).filter(x => x && x !== '-')));
+    const contractors = uniqueValues(group.items.map(it => it.contractor));
+    const dates = uniqueValues(group.items.map(it => it.visitDate));
+    const progressList = uniqueValues(group.items.map(it => it.siteProgress));
+    const forecastList = uniqueValues(group.items.map(it => it.materialForecast));
+    const issuesList = uniqueValues(group.items.map(it => it.issuesAndRisks));
+    const actionsList = uniqueValues(group.items.map(it => it.nextWeekActions));
+
+    let highestRisk = 'Low';
+    if (group.items.some(it => it.riskLevel === 'High')) highestRisk = 'High';
+    else if (group.items.some(it => it.riskLevel === 'Medium')) highestRisk = 'Medium';
+
+    return {
+      projectId: group.projectId || '-',
+      projectName: group.projectName,
+      contractor: contractors.join(', ') || '-',
+      visitDate: dates.join(', ') || '-',
+      siteProgress: progressList.join(' | ') || '-',
+      materialForecast: forecastList.join(' | ') || '-',
+      issuesAndRisks: issuesList.join(' | ') || '-',
+      nextWeekActions: actionsList.join(' | ') || '-',
+      riskLevel: highestRisk,
+      images: combinedImages,
+      imageData: combinedImages.length > 0 ? combinedImages[0].base64Data : '',
+      mimeType: combinedImages.length > 0 ? combinedImages[0].mimeType : ''
+    };
+  }
 }
 
 function getSelectElementOptionText(selectId) {
@@ -323,6 +542,223 @@ function collectAvailableChartConfigs() {
   ];
 
   return candidates.filter(cfg => cfg.available);
+}
+
+/**
+ * คำนวณข้อมูลตาราง Matrix คาดการณ์ยอดขาย (โครงการ x กลุ่มสินค้า) ตามโครงการที่เลือก
+ * และตัดรายการสินค้าและโครงการที่ไม่มี Forecast (ยอด <= 0) ออกทั้งหมด
+ */
+function computeForecastMatrixForPptx() {
+  if (!Array.isArray(parsedDataRowsGlobal) || parsedDataRowsGlobal.length === 0) return null;
+  if (!Array.isArray(availableForecastMonths) || availableForecastMonths.length === 0) return null;
+
+  const mMonth = document.getElementById('matrixMonthSelect');
+  const rawIdx = mMonth ? parseInt(mMonth.value, 10) : NaN;
+  const selectedMonthIdx = !Number.isNaN(rawIdx) ? rawIdx : 0;
+  const targetMonth = availableForecastMonths[selectedMonthIdx];
+  if (!targetMonth) return null;
+
+  const matrix = {};
+  const projectTotals = {};
+  const productTotals = {};
+  const projectMeta = {};
+  let grandTotal = 0;
+
+  parsedDataRowsGlobal.forEach(row => {
+    const projectCode = (row[0] || '').trim();
+    const projectName = (row[1] || row[2] || projectCode || 'ไม่ระบุชื่อโครงการ').trim();
+    const projectKey = projectCode || projectName;
+
+    if (!isProjectSelectedForPptx(projectCode, projectName, projectKey)) return;
+
+    const productGroup = (row[4] || 'อื่นๆ').trim();
+    if (selectedForecastProducts && selectedForecastProducts.size > 0 && !selectedForecastProducts.has(productGroup)) {
+      return;
+    }
+
+    const unitPrice = getUnitPrice(productGroup);
+    const fUnit = parseNum(row[targetMonth.roppCol]);
+    const fVal = displayMode === 'baht' ? (fUnit * unitPrice) : fUnit;
+
+    if (fVal > 0) {
+      if (!matrix[projectKey]) {
+        matrix[projectKey] = {};
+        projectTotals[projectKey] = 0;
+        projectMeta[projectKey] = { code: projectCode, name: projectName };
+      }
+      matrix[projectKey][productGroup] = (matrix[projectKey][productGroup] || 0) + fVal;
+      projectTotals[projectKey] += fVal;
+      productTotals[productGroup] = (productTotals[productGroup] || 0) + fVal;
+      grandTotal += fVal;
+    }
+  });
+
+  // ตัดรายการสินค้าที่ไม่มี Forecast ออกทั้งหมด และเรียงจากยอดสูงสุดไปต่ำสุด
+  const activeProducts = Object.entries(productTotals)
+    .filter(e => e[1] > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(e => e[0]);
+
+  // ตัดโครงการที่ไม่มี Forecast ออกทั้งหมด และเรียงจากยอดสูงสุดไปต่ำสุด
+  const activeProjects = Object.entries(projectTotals)
+    .filter(e => e[1] > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(e => ({
+      key: e[0],
+      code: projectMeta[e[0]].code,
+      name: projectMeta[e[0]].name,
+      total: e[1]
+    }));
+
+  if (activeProjects.length === 0 || activeProducts.length === 0) return null;
+
+  return {
+    monthName: targetMonth.monthYear,
+    projects: activeProjects,
+    products: activeProducts,
+    matrix: matrix,
+    projectTotals: projectTotals,
+    productTotals: productTotals,
+    grandTotal: grandTotal
+  };
+}
+
+/**
+ * สร้างสไลด์ตาราง Matrix คาดการณ์ยอดขาย (โครงการ x กลุ่มสินค้า)
+ * แบ่งหน้าสไลด์อัตโนมัติทั้งแนวตั้ง (สูงสุด 10 โครงการ/หน้า) และแนวนอน (สูงสุด 6 กลุ่มสินค้า/หน้า)
+ */
+function addForecastMatrixSlides(pptx) {
+  const matrixData = computeForecastMatrixForPptx();
+  if (!matrixData) return;
+
+  const unitText = getUnitSuffix();
+  const MAX_COLS_PER_SLIDE = 6;
+  const MAX_ROWS_PER_SLIDE = 10;
+
+  const colChunks = [];
+  for (let c = 0; c < matrixData.products.length; c += MAX_COLS_PER_SLIDE) {
+    colChunks.push(matrixData.products.slice(c, c + MAX_COLS_PER_SLIDE));
+  }
+
+  const rowChunks = [];
+  for (let r = 0; r < matrixData.projects.length; r += MAX_ROWS_PER_SLIDE) {
+    rowChunks.push(matrixData.projects.slice(r, r + MAX_ROWS_PER_SLIDE));
+  }
+
+  const totalSlides = colChunks.length * rowChunks.length;
+  let slideCounter = 0;
+
+  rowChunks.forEach((projSlice, rPageIdx) => {
+    colChunks.forEach((prodSlice, cPageIdx) => {
+      slideCounter++;
+      const slide = pptx.addSlide();
+
+      const pageSuffix = totalSlides > 1 ? ` [หน้า ${slideCounter}/${totalSlides}]` : '';
+      const colRangeNote = colChunks.length > 1
+        ? ` | แสดงกลุ่มสินค้าที่ ${cPageIdx * MAX_COLS_PER_SLIDE + 1}-${cPageIdx * MAX_COLS_PER_SLIDE + prodSlice.length} จาก ${matrixData.products.length} สินค้า`
+        : '';
+
+      addSlideHeaderBar(
+        slide,
+        pptx,
+        'FORECAST MATRIX',
+        '4F46E5',
+        `ตารางคาดการณ์ยอดขายล่วงหน้า — เดือน ${matrixData.monthName} (${unitText})${pageSuffix}`,
+        `โครงการ × กลุ่มสินค้าที่มี Forecast (ตัดสินค้าที่ไม่มี Forecast ออกแล้ว ${matrixData.products.length} กลุ่มสินค้า, ${matrixData.projects.length} โครงการ)${colRangeNote}`
+      );
+
+      // คำนวณความกว้างคอลัมน์ให้พอดีกับพื้นที่ 12.43 นิ้ว
+      const tableTotalW = 12.43;
+      const projColW = 2.95;
+      const sumColW = 1.50;
+      const remainingW = tableTotalW - projColW - sumColW;
+      const singleProdColW = Number((remainingW / prodSlice.length).toFixed(4));
+      const colWidths = [projColW, sumColW, ...prodSlice.map(() => singleProdColW)];
+
+      // แถวหัวตาราง
+      const headerRow = [
+        {
+          text: 'ชื่อโครงการ / รหัส',
+          options: { bold: true, color: 'FFFFFF', fill: '1E293B', align: 'left' }
+        },
+        {
+          text: `ยอดรวม\n(${unitText})`,
+          options: { bold: true, color: 'FFFFFF', fill: '312E81', align: 'right' }
+        },
+        ...prodSlice.map(prod => ({
+          text: prod,
+          options: { bold: true, color: 'FFFFFF', fill: '1E293B', align: 'right' }
+        }))
+      ];
+
+      const tableRows = [headerRow];
+
+      // แถวข้อมูลแต่ละโครงการ
+      projSlice.forEach((p, idx) => {
+        const rowBg = idx % 2 === 0 ? 'FFFFFF' : 'F8FAFC';
+        const shortName = truncateProjectName20(p.name);
+        const projDisplay = p.code ? `${shortName}\n(${p.code})` : shortName;
+
+        const dataCells = prodSlice.map(prod => {
+          const val = (matrixData.matrix[p.key] && matrixData.matrix[p.key][prod]) || 0;
+          return {
+            text: val > 0 ? formatNumber(val) : '-',
+            options: {
+              fill: rowBg,
+              align: 'right',
+              color: val > 0 ? '0F172A' : '94A3B8',
+              bold: val > 0
+            }
+          };
+        });
+
+        tableRows.push([
+          {
+            text: projDisplay,
+            options: { fill: rowBg, bold: true, color: '0F172A', align: 'left' }
+          },
+          {
+            text: formatNumber(p.total),
+            options: { fill: 'EEF2FF', bold: true, color: '4338CA', align: 'right' }
+          },
+          ...dataCells
+        ]);
+      });
+
+      // แถวสรุปยอดรวมทั้งสิ้นด้านล่างสุด
+      const footerCells = prodSlice.map(prod => {
+        const sumVal = matrixData.productTotals[prod] || 0;
+        return {
+          text: formatNumber(sumVal),
+          options: { fill: 'E2E8F0', bold: true, color: '0F172A', align: 'right' }
+        };
+      });
+
+      tableRows.push([
+        {
+          text: 'รวมทั้งสิ้น (ทุกโครงการที่เลือก)',
+          options: { fill: 'E2E8F0', bold: true, color: '0F172A', align: 'left' }
+        },
+        {
+          text: formatNumber(matrixData.grandTotal),
+          options: { fill: 'C7D2FE', bold: true, color: '312E81', align: 'right' }
+        },
+        ...footerCells
+      ]);
+
+      slide.addTable(tableRows, {
+        x: 0.45,
+        y: 1.12,
+        w: tableTotalW,
+        colW: colWidths,
+        fontFace: 'Tahoma',
+        fontSize: 8.5,
+        border: { type: 'solid', color: 'CBD5E1', pt: 0.75 },
+        margin: [3, 4, 3, 4],
+        valign: 'middle'
+      });
+    });
+  });
 }
 
 /**
@@ -637,15 +1073,17 @@ async function executePptxExport(mode = 'combined') {
   const statusBox = document.getElementById('pptxExportProgressBox');
   const statusText = document.getElementById('pptxExportProgressText');
   const actionBtns = document.querySelectorAll('.pptx-export-action-btn');
+  const useAiSummary = Boolean(document.getElementById('pptxAiSummarizeSiteReportCheckbox')?.checked);
 
   if (statusBox) statusBox.classList.remove('hidden');
   if (statusText) statusText.textContent = 'กำลังเตรียมข้อมูลและสร้างสไลด์ PowerPoint...';
   actionBtns.forEach(btn => { btn.disabled = true; });
 
   try {
-    const visits = await getFilteredSiteVisitsForPptx();
+    let visits = await getFilteredSiteVisitsForPptx();
     const charts = collectAvailableChartConfigs();
-    const hasSalesData = Array.isArray(projectList) && projectList.length > 0;
+    const matrixData = computeForecastMatrixForPptx();
+    const hasSalesData = (Array.isArray(projectList) && projectList.length > 0) || Boolean(matrixData);
 
     if (mode === 'site_only' && visits.length === 0) {
       alert('ไม่พบข้อมูล Site Report สำหรับโครงการที่เลือก');
@@ -653,7 +1091,7 @@ async function executePptxExport(mode = 'combined') {
     }
 
     if (mode === 'charts_only' && !hasSalesData && charts.length === 0) {
-      alert('ไม่พบข้อมูล KPI หรือกราฟวิเคราะห์ กรุณาอัปโหลดไฟล์ยอดขาย CSV ก่อน');
+      alert('ไม่พบข้อมูล KPI, ตารางคาดการณ์ หรือกราฟวิเคราะห์ กรุณาอัปโหลดไฟล์ยอดขาย CSV ก่อน');
       return;
     }
 
@@ -662,12 +1100,27 @@ async function executePptxExport(mode = 'combined') {
       return;
     }
 
+    // หากผู้ใช้ติ๊กเลือก "ให้ AI สรุปรวม Site Report รายโครงการ (1 โครงการ = 1 สไลด์)" และโหมดนี้มีการสร้างสไลด์ Site Report
+    const needsSiteSlides = (mode === 'site_only' || mode === 'combined' || mode === 'separate_files') && visits.length > 0;
+    if (useAiSummary && needsSiteSlides) {
+      try {
+        visits = await prepareSummarizedSiteVisitsForPptx(visits, statusText);
+      } catch (aiErr) {
+        if (aiErr && aiErr.message === 'MISSING_GEMINI_API_KEY') {
+          alert('กรุณาตั้งค่า Gemini API Key ก่อนใช้งานฟังก์ชัน AI สรุปรวม Site Report');
+          if (typeof openGeminiKeyModal === 'function') openGeminiKeyModal();
+          return;
+        }
+        throw aiErr;
+      }
+    }
+
     const dateStamp = new Date().toISOString().slice(0, 10);
     let projSlug = '_All_Projects';
     if (pptxAvailableProjectsList.length > 0 && selectedPptxProjectKeys.size < pptxAvailableProjectsList.length) {
       if (selectedPptxProjectKeys.size === 1) {
         const onlyProj = pptxAvailableProjectsList.find(p => selectedPptxProjectKeys.has(p.key));
-        const rawName = onlyProj ? (onlyProj.id || onlyProj.name) : 'Selected';
+        const rawName = onlyProj ? (onlyProj.id || truncateProjectName20(onlyProj.name)) : 'Selected';
         projSlug = `_${String(rawName).replace(/[^a-zA-Z0-9ก-๙_-]/g, '_').slice(0, 25)}`;
       } else {
         projSlug = `_${selectedPptxProjectKeys.size}_Projects`;
@@ -687,9 +1140,9 @@ async function executePptxExport(mode = 'combined') {
       }
 
       if (hasSalesData || charts.length > 0) {
-        if (statusText) statusText.textContent = 'กำลังสร้างไฟล์ที่ 2: Sales Analytics & Charts (.pptx)...';
+        if (statusText) statusText.textContent = 'กำลังสร้างไฟล์ที่ 2: Sales Analytics, Forecast Matrix & Charts (.pptx)...';
         const pptxCharts = createBasePptxInstance('Sales & Cross-sell Analytics');
-        addCoverSlide(pptxCharts, 'รายงานวิเคราะห์ยอดขายและกราฟ (Sales & Cross-sell Analytics)', 'สรุปตัวชี้วัด KPI, เปรียบเทียบ Ropp vs Dealer Actual และคาดการณ์ยอดขายล่วงหน้า');
+        addCoverSlide(pptxCharts, 'รายงานวิเคราะห์ยอดขาย กราฟ และตารางคาดการณ์', 'สรุปตัวชี้วัด KPI, เปรียบเทียบ Ropp vs Dealer Actual, กราฟและตารางคาดการณ์ยอดขายล่วงหน้า');
         buildAnalyticsAndChartSlides(pptxCharts, charts, false);
         await pptxCharts.writeFile({ fileName: `Sales_Charts_Analytics${projSlug}_${dateStamp}.pptx` });
         exportedCount++;
@@ -704,6 +1157,7 @@ async function executePptxExport(mode = 'combined') {
     }
 
     if (mode === 'site_only') {
+      if (statusText) statusText.textContent = 'กำลังสร้างไฟล์ PowerPoint: Site Report...';
       const pptx = createBasePptxInstance('Weekly Site Visit Report');
       addCoverSlide(pptx, 'รายงานความคืบหน้าหน้างาน (Weekly Site Visit Report)', 'สรุปผลการเข้าเยี่ยมหน้างาน แผนเรียกสินค้า และภาพถ่ายประกอบ');
       buildSiteReportSlides(pptx, visits, false);
@@ -713,8 +1167,9 @@ async function executePptxExport(mode = 'combined') {
     }
 
     if (mode === 'charts_only') {
+      if (statusText) statusText.textContent = 'กำลังสร้างไฟล์ PowerPoint: Sales Analytics, Forecast Matrix & Charts...';
       const pptx = createBasePptxInstance('Sales & Cross-sell Analytics');
-      addCoverSlide(pptx, 'รายงานวิเคราะห์ยอดขายและกราฟ (Sales & Cross-sell Analytics)', 'สรุปตัวชี้วัด KPI, เปรียบเทียบ Ropp vs Dealer Actual และคาดการณ์ยอดขายล่วงหน้า');
+      addCoverSlide(pptx, 'รายงานวิเคราะห์ยอดขาย กราฟ และตารางคาดการณ์', 'สรุปตัวชี้วัด KPI, เปรียบเทียบ Ropp vs Dealer Actual, กราฟและตารางคาดการณ์ยอดขายล่วงหน้า');
       buildAnalyticsAndChartSlides(pptx, charts, false);
       await pptx.writeFile({ fileName: `Sales_Charts_Analytics${projSlug}_${dateStamp}.pptx` });
       closePptxExportModal();
@@ -722,11 +1177,12 @@ async function executePptxExport(mode = 'combined') {
     }
 
     // โหมด combined: รวมทั้ง 2 ส่วนใน 1 ไฟล์ โดยคั่นด้วยหน้าแบ่งหมวด (Section Divider) ชัดเจน
+    if (statusText) statusText.textContent = 'กำลังสร้างไฟล์ PowerPoint รวมทั้ง 2 ส่วน...';
     const pptx = createBasePptxInstance('Sales Analytics & Site Visit Report');
     addCoverSlide(
       pptx,
       'Sales Analytics & Weekly Site Visit Report',
-      'รายงานสรุปผลประกอบการ กราฟวิเคราะห์ยอดขาย และความคืบหน้าหน้างาน'
+      'รายงานสรุปผลประกอบการ กราฟวิเคราะห์ ตารางคาดการณ์ยอดขาย และความคืบหน้าหน้างาน'
     );
 
     if (hasSalesData || charts.length > 0) {
@@ -886,15 +1342,15 @@ function addSlideHeaderBar(slide, pptx, badgeText, badgeColor, titleText, subTex
 }
 
 // ==========================================
-// ส่วนที่ 1: สไลด์ KPI และกราฟวิเคราะห์อื่นๆ (คำนวณเฉพาะโครงการที่เลือก)
+// ส่วนที่ 1: สไลด์ KPI, กราฟวิเคราะห์ และตาราง Matrix คาดการณ์ยอดขาย
 // ==========================================
 function buildAnalyticsAndChartSlides(pptx, charts, includeSectionDivider) {
   if (includeSectionDivider) {
     addSectionDividerSlide(
       pptx,
       '01',
-      'Sales KPI & Analytics Charts',
-      'สรุปตัวชี้วัดหลัก (KPI), ตารางโครงการเด่น, เปรียบเทียบ Ropp vs Dealer Actual และคาดการณ์ยอดขาย',
+      'Sales KPI, Charts & Forecast Matrix',
+      'สรุปตัวชี้วัดหลัก (KPI), เปรียบเทียบ Ropp vs Dealer Actual, กราฟและตารางคาดการณ์ยอดขาย',
       '4F46E5'
     );
   }
@@ -931,6 +1387,9 @@ function buildAnalyticsAndChartSlides(pptx, charts, includeSectionDivider) {
       sizing: { type: 'contain', w: 12.03, h: 5.73 }
     });
   });
+
+  // เพิ่มสไลด์ตาราง Matrix คาดการณ์ยอดขาย (ตัดรายการสินค้าที่ไม่มี Forecast ออก)
+  addForecastMatrixSlides(pptx);
 }
 
 function computeKpiStatsForSelectedProjects() {
@@ -1090,7 +1549,7 @@ function buildSiteReportSlides(pptx, visits, includeSectionDivider) {
       pptx,
       '02',
       'Weekly Site Visit Report',
-      `รายงานความคืบหน้าหน้างาน แผนเรียกสินค้า ปัญหา/ความเสี่ยง และรูปถ่ายประกอบ (${visits.length} รายการ)`,
+      `รายงานความคืบหน้าหน้างาน แผนเรียกสินค้า ปัญหา/ความเสี่ยง และภาพถ่ายประกอบ (${visits.length} รายการ)`,
       '0284C7'
     );
   }
@@ -1098,7 +1557,8 @@ function buildSiteReportSlides(pptx, visits, includeSectionDivider) {
   visits.forEach((item, index) => {
     const slide = pptx.addSlide();
 
-    const projTitle = `${index + 1}. ${item.projectName || 'ไม่ระบุชื่อโครงการ'}${item.projectId && item.projectId !== '-' ? ` (${item.projectId})` : ''}`;
+    const shortProjName = truncateProjectName20(item.projectName || 'ไม่ระบุชื่อโครงการ');
+    const projTitle = `${index + 1}. ${shortProjName}${item.projectId && item.projectId !== '-' ? ` (${item.projectId})` : ''}`;
     const subInfo = `ผู้รับเหมา: ${item.contractor || '-'}   |   วันที่เข้าตรวจ: ${item.visitDate || '-'}`;
 
     addSlideHeaderBar(
@@ -1261,4 +1721,5 @@ window.closePptxExportModal = closePptxExportModal;
 window.renderPptxProjectCheckboxes = renderPptxProjectCheckboxes;
 window.toggleSinglePptxProject = toggleSinglePptxProject;
 window.toggleAllPptxProjects = toggleAllPptxProjects;
+window.updatePptxExportPreviewStats = updatePptxExportPreviewStats;
 window.executePptxExport = executePptxExport;
