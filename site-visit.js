@@ -1,7 +1,7 @@
 /**
  * Site Visit & Photo Management (site-visit.js)
  * จัดการรูปถ่ายหน้างาน (อัปโหลดตรงทันที ไม่ต้องผ่าน AI พร้อมบีบอัดขนาดไม่เกิน 100 KB ต่อรูป),
- * รวมภาพชุดวิเคราะห์ AI ด้วยโมเดล gemini-3.5-flash-lite (ส่งคีย์ผ่าน Header x-goog-api-key) เป็น 1 รายงานเดียว,
+ * รวมภาพชุดวิเคราะห์ AI ด้วยโมเดล gemini-3.5-flash-lite เป็น 1 รายงานเดียว (ไม่แสดงภาพสแกนเอกสาร),
  * ระบบจัดการรูปภาพประจำแต่ละกล่อง (อัปโหลดรูปหน้างาน, เพิ่มรูป, ลบเฉพาะรูป),
  * ระบบแก้ไขข้อความรายงาน (Edit Modal), ลบรายการเฉพาะกล่อง, Lightbox,
  * คัดลอกส่ง LINE และ Export ข้อมูลรายงานหน้างานออกเป็น Excel (.xlsx)
@@ -363,10 +363,6 @@ function fileToBase64(file) {
  * วิเคราะห์ภาพทั้งหมดพร้อมกันใน 1 คำขอ แล้วบันทึกเป็น 1 กล่องสรุป (ไม่เก็บรูปเอกสารสแกน)
  */
 async function processSiteVisitImagesWithAI() {
-  if (!geminiApiKey && typeof dbGet === 'function' && db) {
-    geminiApiKey = (await dbGet('settings', 'gemini_api_key')) || '';
-  }
-
   if (!geminiApiKey) {
     alert('กรุณาตั้งค่า Gemini API Key ก่อน');
     openGeminiKeyModal();
@@ -452,10 +448,10 @@ async function processSiteVisitImagesWithAI() {
 }
 
 /**
- * เรียกใช้ Gemini API โดยระบุ Model เป็น gemini-3.5-flash-lite และส่งคีย์ผ่าน HTTP Header (x-goog-api-key)
+ * เรียกใช้ Gemini API โดยระบุ Model เป็น gemini-3.5-flash-lite รองรับ Multi-Image
  */
 async function callGeminiFlashLiteVision(imgObjs, targetProjectObj) {
-  const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${geminiApiKey}`;
 
   const promptText = `
 คุณเป็นผู้ช่วยวิศวกรและผู้จัดการฝ่ายขาย สรุปข้อมูลรายงานประวัติการเข้าเยี่ยมหน้างาน (Site Visit) จากภาพที่แนบมาทั้งหมดนี้ (มีจำนวน ${imgObjs.length} ภาพ อาจประกอบด้วยภาพสภาพหน้างาน ภาพเอกสาร หรือป้ายโครงการ ให้เชื่อมโยงและสังเคราะห์ข้อมูลทั้งหมดเข้าด้วยกันเป็นรายงานเดียว)
@@ -496,10 +492,7 @@ async function callGeminiFlashLiteVision(imgObjs, targetProjectObj) {
 
   const response = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-goog-api-key': geminiApiKey
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
 
