@@ -19,6 +19,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <!-- SheetJS (xlsx) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <!-- PptxGenJS (PowerPoint Export) -->
+  <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
   
   <!-- Custom Stylesheet -->
   <link rel="stylesheet" href="style.css">
@@ -92,6 +94,11 @@
           <!-- ปุ่มอัปโหลดรูปภาพ Site Visit (AI) -->
           <button id="openSiteVisitModalBtn" type="button" class="inline-flex items-center justify-center md:justify-start gap-1.5 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-300 text-[11px] md:text-xs font-semibold px-2.5 py-1.5 md:px-3 md:py-2 rounded-lg transition-all shadow-sm">
             <span>🤖</span> สแกนวิเคราะห์ด้วย AI
+          </button>
+
+          <!-- ปุ่ม Export PowerPoint (.pptx) -->
+          <button id="openPptxModalBtn" type="button" onclick="openPptxExportModal()" class="inline-flex items-center justify-center md:justify-start gap-1.5 bg-orange-50 hover:bg-orange-100 text-orange-800 border border-orange-300 text-[11px] md:text-xs font-semibold px-2.5 py-1.5 md:px-3 md:py-2 rounded-lg transition-all shadow-sm">
+            <span>📽️</span> Export PowerPoint
           </button>
 
           <!-- ปุ่มอัปโหลดราคาต่อหน่วย -->
@@ -211,7 +218,7 @@
               </h2>
             </div>
             <p class="text-xs text-sky-700 mt-1">
-              แนบรูปภาพหน้างานบันทึกเก็บทันที (ไม่ผ่าน AI) หรือกดปุ่ม AI เพื่อสกัดข้อความอัตโนมัติ (กรองตามโครงการหลักด้านบนและเดือนที่เลือก)
+              แนบรูปภาพหน้างานบันทึกเก็บทันที (ย่อขนาด ≤ 100 KB อัตโนมัติ) หรือกดปุ่ม AI เพื่อสกัดข้อความอัตโนมัติ (กรองตามโครงการหลักด้านบนและเดือนที่เลือก)
             </p>
           </div>
           
@@ -246,6 +253,11 @@
               <span>🤖</span> สแกนด้วย AI
             </button>
 
+            <!-- ปุ่ม Export PowerPoint แยก Site Report หรือกราฟอื่นๆ -->
+            <button type="button" onclick="openPptxExportModal()" class="inline-flex items-center gap-1.5 bg-orange-600 hover:bg-orange-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm transition-all">
+              <span>📽️</span> Export PowerPoint
+            </button>
+
             <!-- ปุ่ม Export Excel เลือกรายการงานอัปเดตประจำสัปดาห์ (3 คอลัมน์ + สรุปด้วย AI) -->
             <button id="openWeeklySelectExportModalBtn" type="button" onclick="openWeeklySelectExportModal()" class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm transition-all">
               <span>📋</span> Export Weekly (เลือกงาน)
@@ -272,9 +284,9 @@
           <div id="weeklyInlineDropZone" class="border border-dashed border-sky-300 hover:border-sky-500 bg-sky-50/40 rounded-xl p-4 text-center cursor-pointer transition-all">
             <div class="flex items-center justify-center gap-2 text-sky-800 font-semibold text-xs">
               <span class="text-lg">🖼️</span>
-              <span>ลากรูปถ่ายหน้างานมาวางตรงนี้ หรือคลิกเพื่อเพิ่มรูปภาพเข้าโครงการ (บันทึกทันที ไม่ต้องวิเคราะห์ AI)</span>
+              <span>ลากรูปถ่ายหน้างานมาวางตรงนี้ หรือคลิกเพื่อเพิ่มรูปภาพเข้าโครงการ (บันทึกทันที ย่อขนาด ≤ 100 KB อัตโนมัติ)</span>
             </div>
-            <p class="text-[11px] text-slate-400 mt-0.5">ระบบจะจัดเก็บภาพความละเอียดชัดเจนลง IndexedDB ประจำโครงการที่เลือกด้านบนทันที</p>
+            <p class="text-[11px] text-slate-400 mt-0.5">ระบบจะบีบอัดขนาดภาพไม่เกิน 100 KB ต่อรูปและจัดเก็บลง IndexedDB ประจำโครงการที่เลือกด้านบนทันที</p>
           </div>
 
           <!-- แสดงเมื่อยังไม่มีข้อมูลรูปภาพ -->
@@ -697,7 +709,7 @@
           <span class="text-xl">🤖</span>
           <div>
             <h3 class="text-base font-bold text-sky-950">วิเคราะห์ภาพรายงานหน้างานด้วย AI</h3>
-            <p class="text-xs text-sky-700">ใช้โมเดล gemini-3.5-flash-lite สังเคราะห์ข้อมูลทุกภาพรวมเป็น 1 รายงาน</p>
+            <p class="text-xs text-sky-700">ใช้โมเดล gemini-3.5-flash-lite สังเคราะห์ข้อมูลทุกภาพรวมเป็น 1 รายงาน (บีบอัดภาพ ≤ 100 KB)</p>
           </div>
         </div>
         <button onclick="closeSiteVisitModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-full">
@@ -717,7 +729,7 @@
         <div id="siteVisitDropZone" class="border-2 border-dashed border-sky-300 hover:border-sky-500 bg-sky-50/30 rounded-xl p-6 text-center cursor-pointer transition-all">
           <span class="text-3xl">🖼️</span>
           <p class="text-xs font-semibold text-slate-700 mt-2">ลากรูปภาพมาวางที่นี่ หรือคลิกเพื่อเลือกภาพ (เลือกได้หลายรูป)</p>
-          <p class="text-[11px] text-slate-400 mt-0.5">รองรับไฟล์ PNG, JPG, JPEG (AI จะนำภาพทั้งหมดมารวมสรุปเป็นกล่องเดียวกัน)</p>
+          <p class="text-[11px] text-slate-400 mt-0.5">รองรับไฟล์ PNG, JPG, JPEG (ระบบจะย่อขนาด ≤ 100 KB อัตโนมัติ และนำภาพทั้งหมดมารวมสรุปเป็นกล่องเดียวกัน)</p>
           <input type="file" id="siteVisitFileInput" accept="image/*" multiple class="hidden">
         </div>
 
@@ -1238,13 +1250,110 @@
     </div>
   </div>
 
-  <!-- 6 Modular App Scripts -->
-  <script src="db.js?v=13"></script>
-  <script src="state.js?v=13"></script>
-  <script src="dealer.js?v=13"></script>
-  <script src="forecast.js?v=13"></script>
-  <script src="site-visit.js?v=13"></script>
-  <script src="sales-engine.js?v=13"></script>
+  <!-- Modal 10: PowerPoint Export Modal (แยก Site Report และกราฟวิเคราะห์อื่นๆ) -->
+  <div id="pptxExportModal" onclick="if(event.target === this) closePptxExportModal()" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-xl w-full overflow-hidden border border-slate-100">
+      <div class="p-5 border-b border-orange-100 bg-orange-50/80 flex justify-between items-center">
+        <div class="flex items-center gap-2.5">
+          <span class="text-2xl">📽️</span>
+          <div>
+            <h3 class="text-base font-bold text-orange-950">ส่งออกรายงาน PowerPoint (.pptx)</h3>
+            <p class="text-xs text-orange-700">เลือกส่งออกแยกไฟล์หรือแยกสไลด์ระหว่าง Site Report และกราฟวิเคราะห์อื่นๆ</p>
+          </div>
+        </div>
+        <button onclick="closePptxExportModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-full">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <div class="p-5 space-y-4 text-xs">
+        <!-- สรุปขอบเขตข้อมูลที่กำลังจะ Export -->
+        <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5">
+          <div class="flex justify-between items-center">
+            <span class="text-slate-500 font-medium">ขอบเขตโครงการที่เลือก:</span>
+            <span id="pptxScopeProjectLabel" class="font-bold text-indigo-700">โครงการทั้งหมด</span>
+          </div>
+          <div class="flex justify-between items-center">
+            <span class="text-slate-500 font-medium">หมวด 1 — ข้อมูล Site Report:</span>
+            <span id="pptxPreviewSiteCount" class="font-bold text-sky-700">0 รายการ</span>
+          </div>
+          <div class="flex justify-between items-center">
+            <span class="text-slate-500 font-medium">หมวด 2 — กราฟและ KPI อื่นๆ:</span>
+            <span id="pptxPreviewChartCount" class="font-bold text-emerald-700">KPI + 0 กราฟวิเคราะห์</span>
+          </div>
+        </div>
+
+        <!-- ตัวเลือกปุ่มส่งออก 4 รูปแบบ -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <!-- ตัวเลือกที่ 1: แยกไฟล์เด็ดขาดเป็น 2 ไฟล์ -->
+          <button type="button" onclick="executePptxExport('separate_files')"
+                  class="pptx-export-action-btn p-3.5 rounded-xl border-2 border-orange-300 bg-orange-50/60 hover:bg-orange-100/80 text-left transition-all flex flex-col justify-between gap-1.5 shadow-sm">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-orange-950 text-sm flex items-center gap-1.5"><span>🗂️</span> แยกเป็น 2 ไฟล์ (.pptx)</span>
+              <span class="bg-orange-600 text-white text-[10px] px-1.5 py-0.5 rounded font-bold">แนะนำ</span>
+            </div>
+            <p class="text-[11px] text-orange-800 leading-relaxed">
+              ดาวน์โหลดแยก 2 ไฟล์อิสระ: ไฟล์ <strong>Site Report</strong> 1 ไฟล์ และไฟล์ <strong>กราฟวิเคราะห์ & KPI</strong> 1 ไฟล์
+            </p>
+          </button>
+
+          <!-- ตัวเลือกที่ 2: เฉพาะ Site Report -->
+          <button type="button" onclick="executePptxExport('site_only')"
+                  class="pptx-export-action-btn p-3.5 rounded-xl border border-sky-200 bg-sky-50/50 hover:bg-sky-100/70 text-left transition-all flex flex-col justify-between gap-1.5">
+            <div class="font-bold text-sky-950 text-sm flex items-center gap-1.5">
+              <span>📸</span> เฉพาะ Site Report
+            </div>
+            <p class="text-[11px] text-sky-800 leading-relaxed">
+              สไลด์รายงานหน้างาน ความคืบหน้า แผนเรียกสินค้า ปัญหา/ความเสี่ยง และรูปถ่ายหน้างาน (1 โครงการ/สไลด์)
+            </p>
+          </button>
+
+          <!-- ตัวเลือกที่ 3: เฉพาะกราฟวิเคราะห์และ KPI อื่นๆ -->
+          <button type="button" onclick="executePptxExport('charts_only')"
+                  class="pptx-export-action-btn p-3.5 rounded-xl border border-indigo-200 bg-indigo-50/50 hover:bg-indigo-100/70 text-left transition-all flex flex-col justify-between gap-1.5">
+            <div class="font-bold text-indigo-950 text-sm flex items-center gap-1.5">
+              <span>📊</span> เฉพาะกราฟและ KPI อื่นๆ
+            </div>
+            <p class="text-[11px] text-indigo-800 leading-relaxed">
+              สไลด์สรุป KPI, ตารางโครงการเด่น, กราฟ Ropp vs Dealer Actual และกราฟ Sales Forecast ทั้งหมด
+            </p>
+          </button>
+
+          <!-- ตัวเลือกที่ 4: รวมทั้งหมดใน 1 ไฟล์ (คั่นหมวดชัดเจน) -->
+          <button type="button" onclick="executePptxExport('combined')"
+                  class="pptx-export-action-btn p-3.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-left transition-all flex flex-col justify-between gap-1.5">
+            <div class="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+              <span>📑</span> รวมทั้ง 2 ส่วนใน 1 ไฟล์
+            </div>
+            <p class="text-[11px] text-slate-600 leading-relaxed">
+              รวมสไลด์ทั้งหมดไว้ในไฟล์เดียว โดยคั่นหน้าแบ่งหมวด Section 01 (กราฟ/KPI) และ Section 02 (Site Report)
+            </p>
+          </button>
+        </div>
+
+        <!-- แสดงสถานะระหว่างสร้างไฟล์ PowerPoint -->
+        <div id="pptxExportProgressBox" class="hidden p-3 rounded-xl bg-orange-50 border border-orange-200 text-orange-900 flex items-center gap-2 font-semibold">
+          <svg class="animate-spin h-4 w-4 text-orange-600 shrink-0" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+          <span id="pptxExportProgressText">กำลังสร้างไฟล์ PowerPoint...</span>
+        </div>
+      </div>
+
+      <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
+        <button onclick="closePptxExportModal()" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded-lg transition-colors">
+          ปิดหน้าต่าง
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 7 Modular App Scripts -->
+  <script src="db.js?v=14"></script>
+  <script src="state.js?v=14"></script>
+  <script src="dealer.js?v=14"></script>
+  <script src="forecast.js?v=14"></script>
+  <script src="site-visit.js?v=14"></script>
+  <script src="sales-engine.js?v=14"></script>
+  <script src="pptx-export.js?v=14"></script>
 
   <!-- PWA Service Worker Registration -->
   <script>

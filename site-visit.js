@@ -1,6 +1,6 @@
 /**
  * Site Visit & Photo Management (site-visit.js)
- * จัดการรูปถ่ายหน้างาน (อัปโหลดตรงทันที ไม่ต้องผ่าน AI),
+ * จัดการรูปถ่ายหน้างาน (อัปโหลดตรงทันที ไม่ต้องผ่าน AI พร้อมบีบอัดขนาดไม่เกิน 100 KB ต่อรูป),
  * รวมภาพชุดวิเคราะห์ AI ด้วยโมเดล gemini-3.5-flash-lite เป็น 1 รายงานเดียว (ไม่แสดงภาพสแกนเอกสาร),
  * ระบบจัดการรูปภาพประจำแต่ละกล่อง (อัปโหลดรูปหน้างาน, เพิ่มรูป, ลบเฉพาะรูป),
  * ระบบแก้ไขข้อความรายงาน (Edit Modal), ลบรายการเฉพาะกล่อง, Lightbox,
@@ -64,6 +64,94 @@ function updateApiKeyStatusUI() {
 }
 
 // ==========================================
+// ระบบย่อขนาดและบีบอัดรูปภาพให้ไม่เกิน 100 KB ต่อรูป
+// ==========================================
+function getBase64ByteLength(base64Str) {
+  if (!base64Str) return 0;
+  const paddingMatch = base64Str.match(/=+$/);
+  const paddingLen = paddingMatch ? paddingMatch[0].length : 0;
+  return Math.floor((base64Str.length * 3) / 4) - paddingLen;
+}
+
+/**
+ * บีบอัดไฟล์รูปภาพด้วย HTML5 Canvas ให้มีขนาดไฟล์จริงไม่เกิน maxKB (ค่าเริ่มต้น 100 KB)
+ * คืนค่า { mimeType: 'image/jpeg', base64Data, sizeBytes }
+ */
+function compressImageToMaxKB(file, maxKB = 100) {
+  const maxBytes = maxKB * 1024;
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const origW = img.naturalWidth || img.width || 1280;
+          const origH = img.naturalHeight || img.height || 720;
+          let maxDim = Math.min(1280, Math.max(origW, origH));
+
+          const qualitySteps = [0.85, 0.75, 0.65, 0.55, 0.45, 0.35];
+          let bestBase64 = '';
+          let bestBytes = Infinity;
+
+          for (let dimAttempt = 0; dimAttempt < 6; dimAttempt++) {
+            const scale = Math.min(1, maxDim / Math.max(origW, origH));
+            const targetW = Math.max(1, Math.round(origW * scale));
+            const targetH = Math.max(1, Math.round(origH * scale));
+
+            const canvas = document.createElement('canvas');
+            canvas.width = targetW;
+            canvas.height = targetH;
+            const ctx = canvas.getContext('2d');
+
+            // เติมพื้นหลังสีขาวเผื่อกรณีอัปโหลดไฟล์ PNG พื้นหลังโปร่งใส
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, targetW, targetH);
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(img, 0, 0, targetW, targetH);
+
+            for (let q of qualitySteps) {
+              const dataUrl = canvas.toDataURL('image/jpeg', q);
+              const base64Data = dataUrl.split(',')[1] || '';
+              const byteSize = getBase64ByteLength(base64Data);
+
+              if (byteSize < bestBytes) {
+                bestBytes = byteSize;
+                bestBase64 = base64Data;
+              }
+
+              if (byteSize <= maxBytes) {
+                resolve({
+                  mimeType: 'image/jpeg',
+                  base64Data: base64Data,
+                  sizeBytes: byteSize
+                });
+                return;
+              }
+            }
+
+            // หากยังเกิน 100 KB ให้ลดความละเอียดด้านยาวสุดลง 25% แล้วบีบอัดซ้ำ
+            maxDim = Math.max(240, Math.round(maxDim * 0.75));
+          }
+
+          resolve({
+            mimeType: 'image/jpeg',
+            base64Data: bestBase64,
+            sizeBytes: bestBytes
+          });
+        } catch (err) {
+          reject(err);
+        }
+      };
+      img.onerror = (err) => reject(err);
+      img.src = event.target.result;
+    };
+    reader.onerror = (err) => reject(err);
+    reader.readAsDataURL(file);
+  });
+}
+
+// ==========================================
 // Direct Photo Upload จากแถบด้านบน (ไม่ผ่าน AI)
 // ==========================================
 async function handleDirectSitePhotoUpload(files) {
@@ -94,10 +182,10 @@ async function handleDirectSitePhotoUpload(files) {
     const file = files[i];
     if (file.type.startsWith('image/')) {
       try {
-        const imgData = await fileToBase64(file);
+        const imgData = await compressImageToMaxKB(file, 100);
         imgObjs.push(imgData);
       } catch (err) {
-        console.error('File to base64 error:', err);
+        console.error('Image compression error:', err);
       }
     }
   }
@@ -145,7 +233,7 @@ function triggerBoxPhotoUpload(visitId) {
 }
 
 /**
- * บันทึกรูปภาพที่เลือกลงในการ์ดใบนั้นๆ
+ * บันทึกรูปภาพที่เลือกลงในการ์ดใบนั้นๆ (บีบอัดไม่เกิน 100 KB ต่อรูป)
  */
 async function handleBoxPhotoUpload(visitId, files) {
   const item = siteVisitLogsGlobal.find(i => i.id === visitId);
@@ -162,10 +250,10 @@ async function handleBoxPhotoUpload(visitId, files) {
     const file = files[i];
     if (file.type.startsWith('image/')) {
       try {
-        const imgData = await fileToBase64(file);
+        const imgData = await compressImageToMaxKB(file, 100);
         item.images.push({ base64Data: imgData.base64Data, mimeType: imgData.mimeType });
       } catch (err) {
-        console.error('Box photo upload error:', err);
+        console.error('Box photo upload & compress error:', err);
       }
     }
   }
@@ -268,19 +356,7 @@ function clearSelectedSiteImages() {
 }
 
 function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const res = reader.result;
-      const base64Data = res.split(',')[1];
-      resolve({
-        mimeType: file.type || 'image/jpeg',
-        base64Data: base64Data
-      });
-    };
-    reader.onerror = error => reject(error);
-    reader.readAsDataURL(file);
-  });
+  return compressImageToMaxKB(file, 100);
 }
 
 /**
@@ -311,13 +387,13 @@ async function processSiteVisitImagesWithAI() {
   if (startBtn) startBtn.disabled = true;
 
   try {
-    if (statusText) statusText.textContent = `กำลังแปลงไฟล์รูปภาพ ${selectedSiteFiles.length} รูป...`;
+    if (statusText) statusText.textContent = `กำลังปรับขนาดและแปลงไฟล์รูปภาพ ${selectedSiteFiles.length} รูป (≤ 100 KB/รูป)...`;
     if (fillBar) fillBar.style.width = '30%';
     if (percentText) percentText.textContent = '30%';
 
     const imgObjs = [];
     for (let i = 0; i < selectedSiteFiles.length; i++) {
-      const imgData = await fileToBase64(selectedSiteFiles[i]);
+      const imgData = await compressImageToMaxKB(selectedSiteFiles[i], 100);
       imgObjs.push(imgData);
     }
 
@@ -620,7 +696,7 @@ function renderWeeklySiteVisitDashboard() {
                 <span class="text-xl">📷</span>
                 <div>
                   <div class="text-xs font-semibold text-sky-900">ยังไม่มีรูปถ่ายหน้างานในกล่องนี้</div>
-                  <div class="text-[10px] text-slate-400">คลิกเพื่ออัปโหลดรูปภาพไซต์งาน (เพิ่มได้หลายรูป)</div>
+                  <div class="text-[10px] text-slate-400">คลิกเพื่ออัปโหลดรูปภาพไซต์งาน (เพิ่มได้หลายรูป, ย่อ ≤ 100 KB อัตโนมัติ)</div>
                 </div>
               </div>
               <button type="button" class="text-xs bg-sky-600 hover:bg-sky-700 text-white font-semibold px-2.5 py-1 rounded-lg shadow-sm">

@@ -1,10 +1,10 @@
 /**
  * Service Worker - sw.js
  * จัดการ Caching ด้วยกลยุทธ์ Network-First สำหรับโหมด Offline PWA
- * อัปเดตเวอร์ชันแคชเป็น v14 และปรับรายการไฟล์สคริปต์เป็น ?v=13 ให้ตรงกับ index.html
+ * อัปเดตเวอร์ชันแคชเป็น v15 และเพิ่ม PptxGenJS กับ pptx-export.js?v=14 ให้ตรงกับ index.html
  */
 
-const CACHE_NAME = 'sales-analytics-v14';
+const CACHE_NAME = 'sales-analytics-v15';
 
 // รายการไฟล์ทั้งหมดในโปรเจกต์ที่ต้องแคชไว้ใช้งานออฟไลน์
 const STATIC_ASSETS = [
@@ -13,16 +13,18 @@ const STATIC_ASSETS = [
   './style.css',
   './manifest.json',
   './icon.png',
-  './db.js?v=13',
-  './state.js?v=13',
-  './dealer.js?v=13',
-  './forecast.js?v=13',
-  './site-visit.js?v=13',
-  './sales-engine.js?v=13',
+  './db.js?v=14',
+  './state.js?v=14',
+  './dealer.js?v=14',
+  './forecast.js?v=14',
+  './site-visit.js?v=14',
+  './sales-engine.js?v=14',
+  './pptx-export.js?v=14',
   'https://cdn.tailwindcss.com',
   'https://cdn.jsdelivr.net/npm/chart.js',
   'https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
+  'https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js',
   'https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap'
 ];
 
