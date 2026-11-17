@@ -8,6 +8,7 @@
  * 4. เชื่อมตัวกรองรายงาน Weekly แบบเลือกได้ 1 เดือนหรือหลายเดือน (Multi-Select Month Filter) เข้ากับปุ่มใน Section 1 และ Modal Export
  * 5. เพิ่มระบบ "ตารางพักรายการเตรียม Export (Export Staging Table)" และระบบ AI สรุป 2 โหมด (สรุปรวมเป็น 1 แถว / สรุปแยกตามรายโครงการ) ด้วย gemini-3.5-flash-lite
  * 6. รองรับเมนูพับเก็บได้บนหน้าจอมือถือ (toggleMobileHeaderTools)
+ * 7. รองรับตัวกรองย่อยสำหรับสลับหน่วยแสดงผล (บาท / หน่วยสินค้า) แยกเฉพาะส่วน Sales Forecast
  */
 
 function toggleMobileHeaderTools() {
@@ -2893,6 +2894,7 @@ async function initializeSalesEngineApp() {
   const priceFileInput = document.getElementById('priceFileInput');
   const dealerFileInput = document.getElementById('dealerFileInput');
   const unitDisplayModeSelect = document.getElementById('unitDisplayModeSelect');
+  const forecastUnitDisplayModeSelect = document.getElementById('forecastUnitDisplayModeSelect');
 
   if (dropZone && salesFileInput) {
     dropZone.addEventListener('click', () => salesFileInput.click());
@@ -2951,6 +2953,18 @@ async function initializeSalesEngineApp() {
         updateDealerComparisonCharts();
       }
       updateKpiSummary();
+    });
+  }
+
+  // Filter ย่อยสำหรับสลับหน่วยแสดงผลเฉพาะส่วน Sales Forecast (บาท / หน่วยสินค้า)
+  if (forecastUnitDisplayModeSelect) {
+    forecastUnitDisplayModeSelect.value = forecastDisplayMode;
+    forecastUnitDisplayModeSelect.addEventListener('change', (e) => {
+      forecastDisplayMode = e.target.value;
+      updateUIUnitLabels();
+      updateForecastProductChart();
+      updateForecastProjectChart();
+      updateForecastMatrix();
     });
   }
 

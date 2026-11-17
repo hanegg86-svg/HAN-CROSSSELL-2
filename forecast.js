@@ -1,7 +1,9 @@
 /**
  * Sales Forecast & Cross-tab Matrix (forecast.js)
  * จัดการโมดูลการคาดการณ์ยอดขายล่วงหน้า (Ropp) กราฟสินค้า/โครงการ และตาราง Matrix
- * ปรับปรุง: คงค่าเดือนที่เลือกไว้เดิมเมื่อสลับหน่วยแสดงผล (ไม่ Reset)
+ * ปรับปรุง:
+ * 1. คงค่าเดือนที่เลือกไว้เดิมเมื่อสลับหน่วยแสดงผล (ไม่ Reset)
+ * 2. แยกหน่วยแสดงผล (forecastDisplayMode: บาท / หน่วยสินค้า) อิสระจากตัวกรองหลักของแอป
  */
 
 function initForecastControls() {
@@ -12,6 +14,11 @@ function initForecastControls() {
   const fEnd = document.getElementById('forecastEndSelect');
   const fSingle = document.getElementById('forecastProjectSingleMonthSelect');
   const mMonth = document.getElementById('matrixMonthSelect');
+  const fUnitSelect = document.getElementById('forecastUnitDisplayModeSelect');
+
+  if (fUnitSelect) {
+    fUnitSelect.value = forecastDisplayMode;
+  }
 
   const curFStart = fStart ? fStart.value : null;
   const curFEnd = fEnd ? fEnd.value : null;
@@ -162,7 +169,7 @@ function updateForecastProductChart() {
 
     selectedMonths.forEach((fm, fIdx) => {
       const fUnit = parseNum(row[fm.roppCol]);
-      const fVal = displayMode === 'baht' ? (fUnit * unitPrice) : fUnit;
+      const fVal = forecastDisplayMode === 'baht' ? (fUnit * unitPrice) : fUnit;
       forecastProducts[productGroup][fIdx] += fVal;
     });
   });
@@ -172,7 +179,7 @@ function updateForecastProductChart() {
     .sort((a, b) => b.total - a.total)
     .slice(0, 8);
 
-  const unitSuffix = getUnitSuffix();
+  const unitSuffix = getForecastUnitSuffix();
   const productDatasets = topForecastProducts.map(p => ({
     label: p.name,
     data: p.vals,
@@ -235,7 +242,7 @@ function updateForecastProjectChart() {
 
     const unitPrice = getUnitPrice(productGroup);
     const fUnit = parseNum(row[targetMonth.roppCol]);
-    const fVal = displayMode === 'baht' ? (fUnit * unitPrice) : fUnit;
+    const fVal = forecastDisplayMode === 'baht' ? (fUnit * unitPrice) : fUnit;
 
     if (fVal > 0) {
       projectTotals[projectName] = (projectTotals[projectName] || 0) + fVal;
@@ -250,7 +257,7 @@ function updateForecastProjectChart() {
     .slice(0, 8)
     .map(entry => entry[0]);
 
-  const unitSuffix = getUnitSuffix();
+  const unitSuffix = getForecastUnitSuffix();
   const productList = Array.from(allProductGroups);
   const datasets = productList.map(prod => {
     return {
@@ -319,7 +326,7 @@ function updateForecastMatrix() {
 
     const unitPrice = getUnitPrice(productGroup);
     const fUnit = parseNum(row[targetMonth.roppCol]);
-    const fVal = displayMode === 'baht' ? (fUnit * unitPrice) : fUnit;
+    const fVal = forecastDisplayMode === 'baht' ? (fUnit * unitPrice) : fUnit;
 
     if (!matrix[projectName]) {
       matrix[projectName] = {};
@@ -364,7 +371,7 @@ function renderForecastMatrixTable() {
   const searchTerm = (document.getElementById('matrixSearchInput')?.value || '').toLowerCase().trim();
 
   const { projects, products, matrix, productTotals, grandTotal } = currentMatrixData;
-  const unitSuffix = getUnitSuffix();
+  const unitSuffix = getForecastUnitSuffix();
 
   if (!projects || projects.length === 0 || products.length === 0) {
     thead.innerHTML = `<tr><th class="py-3 px-4">โครงการ / สินค้า</th></tr>`;
@@ -431,7 +438,7 @@ function exportForecastMatrixToExcel() {
     alert('ไม่มีข้อมูลสำหรับ Export');
     return;
   }
-  const unitSuffix = getUnitSuffix();
+  const unitSuffix = getForecastUnitSuffix();
   const excelData = projects.map(p => {
     const row = {
       "รหัสโครงการ": p.code || '-',
@@ -443,5 +450,5 @@ function exportForecastMatrixToExcel() {
     });
     return row;
   });
-  downloadExcel(excelData, `Forecast_Matrix_${monthName || 'Month'}_${displayMode}`, 'Matrix');
+  downloadExcel(excelData, `Forecast_Matrix_${monthName || 'Month'}_${forecastDisplayMode}`, 'Matrix');
 }

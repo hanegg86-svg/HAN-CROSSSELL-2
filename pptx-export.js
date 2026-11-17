@@ -4,9 +4,9 @@
  * รองรับการเลือกโครงการแบบ Multi-Select (1 โครงการ, หลายโครงการ หรือทั้งหมด)
  * ตัดชื่อโครงการที่ยาวเกิน 20 ตัวอักษรเหลือ 20 ตัวอักษรในหัวข้อสไลด์เพื่อไม่ให้ล้นขอบ
  * รองรับตัวเลือก AI (gemini-3.5-flash-lite) สรุปรวม Site Report รายโครงการให้เหลือ 1 หน้าสไลด์เฉพาะตอนสร้างไฟล์ PPTX
+ * แสดงวันที่เข้าตรวจครบทุกวันจากรายงานย่อยทั้งหมดในโครงการ (ไม่ย่อเป็นช่วงวันที่)
  * เพิ่มสไลด์ตาราง Matrix คาดการณ์ยอดขาย (โครงการ x กลุ่มสินค้า) โดยตัดรายการสินค้าและโครงการที่ไม่มี Forecast ออกอัตโนมัติ
- * ดึงตัวกรองช่วงเดือนและกลุ่มสินค้าจากหน้าจอมาสร้างกราฟอย่างแม่นยำ (รองรับการเลือกเดือนแรกสุด index 0)
- * และแยกส่งออกระหว่าง "Site Report (รายงานหน้างานและรูปถ่าย)" และ "กราฟวิเคราะห์, ตารางคาดการณ์ และ KPI อื่นๆ"
+ * ดึงตัวกรองช่วงเดือน กลุ่มสินค้า และหน่วยแสดงผลแยกเฉพาะส่วน Sales Forecast มาสร้างกราฟและตารางอย่างแม่นยำ
  */
 
 let pptxAvailableProjectsList = []; // [{ key, id, name }]
@@ -21,6 +21,66 @@ function truncateProjectName20(name) {
     return clean.slice(0, 20);
   }
   return clean;
+}
+
+/**
+ * แปลงข้อความวันที่เป็น Timestamp เพื่อใช้เรียงลำดับวันที่เข้าตรวจจากเก่าไปใหม่
+ */
+function parseVisitDateTimestamp(dateStr) {
+  const clean = String(dateStr || '').trim();
+  if (!clean || clean === '-') return Number.MAX_SAFE_INTEGER;
+
+  // รูปแบบ DD/MM/YYYY หรือ D/M/YY
+  const dmyMatch = clean.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+  if (dmyMatch) {
+    const d = parseInt(dmyMatch[1], 10);
+    const m = parseInt(dmyMatch[2], 10) - 1;
+    let y = parseInt(dmyMatch[3], 10);
+    if (typeof normalizeYear === 'function') {
+      y = normalizeYear(y, false);
+    } else if (y > 2400) {
+      y -= 543;
+    } else if (y < 100) {
+      y += 2000;
+    }
+    const dt = new Date(y, m, d);
+    if (!isNaN(dt.getTime())) return dt.getTime();
+  }
+
+  // รูปแบบ YYYY-MM-DD หรือ YYYY/MM/DD
+  const ymdMatch = clean.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+  if (ymdMatch) {
+    let y = parseInt(ymdMatch[1], 10);
+    if (y > 2400) y -= 543;
+    const m = parseInt(ymdMatch[2], 10) - 1;
+    const d = parseInt(ymdMatch[3], 10);
+    const dt = new Date(y, m, d);
+    if (!isNaN(dt.getTime())) return dt.getTime();
+  }
+
+  const parsed = Date.parse(clean);
+  return isNaN(parsed) ? Number.MAX_SAFE_INTEGER : parsed;
+}
+
+/**
+ * รวบรวมวันที่เข้าตรวจทั้งหมดจากรายการรายงานย่อยของโครงการ ตัดค่าซ้ำ และเรียงลำดับครบทุกวัน
+ */
+function collectAllUniqueVisitDates(items) {
+  const uniqueDates = new Set();
+  (items || []).forEach(it => {
+    const raw = String(it?.visitDate || '').trim();
+    if (!raw || raw === '-') return;
+    raw.split(',').forEach(part => {
+      const token = part.trim();
+      if (token && token !== '-') {
+        uniqueDates.add(token);
+      }
+    });
+  });
+
+  return Array.from(uniqueDates)
+    .sort((a, b) => parseVisitDateTimestamp(a) - parseVisitDateTimestamp(b))
+    .join(', ');
 }
 
 function buildAvailableProjectsForPptx() {
@@ -371,8 +431,11 @@ async function prepareSummarizedSiteVisitsForPptx(visits, statusTextEl) {
 
 /**
  * เรียกใช้โมเดล gemini-3.5-flash-lite เพื่อสรุปรวมรายงานหลายรายการของ 1 โครงการ
+ * โดยคงวันที่เข้าตรวจทั้งหมดทุกวันไว้ครบถ้วน (ไม่ย่อเป็นช่วงวันที่)
  */
 async function summarizeSingleProjectGroupWithAI(group, combinedImages, apiKey) {
+  const allVisitDatesStr = collectAllUniqueVisitDates(group.items);
+
   const rawReportsText = group.items.map((item, idx) => {
     return `[รายงานย่อยที่ ${idx + 1}]
 - วันที่เข้าตรวจ: ${item.visitDate || '-'}
@@ -389,7 +452,7 @@ async function summarizeSingleProjectGroupWithAI(group, combinedImages, apiKey) 
 ตอบกลับเป็น JSON Object บริสุทธิ์เท่านั้น ตามโครงสร้างนี้:
 {
   "contractor": "รายชื่อบริษัทผู้รับเหมาทั้งหมดที่เกี่ยวข้อง (หากมีหลายรายให้คั่นด้วยเครื่องหมายจุลภาค)",
-  "visitDate": "วันที่หรือช่วงวันที่เข้าตรวจ (เช่น 01/11/2026 - 15/11/2026)",
+  "visitDate": "ระบุวันที่เข้าตรวจทั้งหมดทุกวันเรียงตามลำดับ คั่นด้วยเครื่องหมายจุลภาค ห้ามย่อเป็นช่วงวันที่ (เช่น 06/11/2026, 11/11/2026, 17/11/2026)",
   "siteProgress": "สรุปรวมความคืบหน้าหน้างานและการใช้งานสินค้าทั้งหมดอย่างกระชับ ชัดเจน (ความยาวพอเหมาะสำหรับ 1 สไลด์)",
   "materialForecast": "สรุปรวมแผนเรียกสินค้า (Material Forecast) ทั้งหมดของโครงการนี้",
   "issuesAndRisks": "สรุปรวมปัญหาและความเสี่ยงหน้างานทั้งหมด (หากไม่มีให้ระบุว่า หน้างานดำเนินไปตามแผนงานปกติ)",
@@ -432,7 +495,7 @@ ${rawReportsText}`;
       projectId: group.projectId || '-',
       projectName: group.projectName,
       contractor: String(parsed.contractor || '-').trim(),
-      visitDate: String(parsed.visitDate || '-').trim(),
+      visitDate: allVisitDatesStr || String(parsed.visitDate || '-').trim(),
       siteProgress: String(parsed.siteProgress || '-').trim(),
       materialForecast: String(parsed.materialForecast || '-').trim(),
       issuesAndRisks: String(parsed.issuesAndRisks || '-').trim(),
@@ -444,10 +507,9 @@ ${rawReportsText}`;
     };
   } catch (err) {
     console.error(`AI summarization fallback for project ${group.projectName}:`, err);
-    // กรณีเรียก AI ไม่สำเร็จ ให้รวมข้อความแบบต่อบรรทัดอัตโนมัติเพื่อไม่ให้การ Export หยุดชะงัก
+    // กรณีเรียก AI ไม่สำเร็จ ให้รวมข้อความแบบต่อบรรทัดอัตโนมัติพร้อมแสดงวันที่เข้าตรวจครบทุกวัน
     const uniqueValues = (arr) => Array.from(new Set(arr.map(x => String(x || '').trim()).filter(x => x && x !== '-')));
     const contractors = uniqueValues(group.items.map(it => it.contractor));
-    const dates = uniqueValues(group.items.map(it => it.visitDate));
     const progressList = uniqueValues(group.items.map(it => it.siteProgress));
     const forecastList = uniqueValues(group.items.map(it => it.materialForecast));
     const issuesList = uniqueValues(group.items.map(it => it.issuesAndRisks));
@@ -461,7 +523,7 @@ ${rawReportsText}`;
       projectId: group.projectId || '-',
       projectName: group.projectName,
       contractor: contractors.join(', ') || '-',
-      visitDate: dates.join(', ') || '-',
+      visitDate: allVisitDatesStr || '-',
       siteProgress: progressList.join(' | ') || '-',
       materialForecast: forecastList.join(' | ') || '-',
       issuesAndRisks: issuesList.join(' | ') || '-',
@@ -481,10 +543,11 @@ function getSelectElementOptionText(selectId) {
 }
 
 /**
- * รวบรวมโครงสร้างกราฟวิเคราะห์ทั้ง 5 กราฟที่มีข้อมูลในระบบ พร้อมระบุช่วงเวลาที่ Filter อยู่บนหัวสไลด์
+ * รวบรวมโครงสร้างกราฟวิเคราะห์ทั้ง 5 กราฟที่มีข้อมูลในระบบ พร้อมระบุช่วงเวลาและหน่วยที่ Filter อยู่บนหัวสไลด์
  */
 function collectAvailableChartConfigs() {
-  const unitText = getUnitSuffix();
+  const dealerUnitText = getUnitSuffix();
+  const forecastUnitText = typeof getForecastUnitSuffix === 'function' ? getForecastUnitSuffix() : getUnitSuffix();
   const hasParsedRows = Array.isArray(parsedDataRowsGlobal) && parsedDataRowsGlobal.length > 0;
   const hasForecastMonths = Array.isArray(availableForecastMonths) && availableForecastMonths.length > 0;
 
@@ -507,35 +570,35 @@ function collectAvailableChartConfigs() {
     {
       id: 'dealerCompMonthlyChart',
       available: hasParsedRows && Array.isArray(allMonthHeadersGlobal) && allMonthHeadersGlobal.length > 0,
-      title: `Ropp vs Dealer Actual รายเดือน (${unitText})`,
+      title: `Ropp vs Dealer Actual รายเดือน (${dealerUnitText})`,
       subtitle: `เปรียบเทียบยอดโอกาส (Ropp) กับยอดขายจริงผ่าน Dealer แยกรายเดือน${dealerPeriodSuffix}`,
       category: 'Dealer Analytics'
     },
     {
       id: 'dealerCompProjectChart',
       available: hasParsedRows,
-      title: `Ropp vs Dealer Actual ใน Top โครงการ (${unitText})`,
+      title: `Ropp vs Dealer Actual ใน Top โครงการ (${dealerUnitText})`,
       subtitle: `เปรียบเทียบโอกาสและยอดขายจริงผ่าน Dealer รายโครงการสูงสุด 10 อันดับ${dealerPeriodSuffix}`,
       category: 'Dealer Analytics'
     },
     {
       id: 'dealerCompProductChart',
       available: hasParsedRows,
-      title: `Ropp vs Dealer Actual รายกลุ่มสินค้า (${unitText})`,
+      title: `Ropp vs Dealer Actual รายกลุ่มสินค้า (${dealerUnitText})`,
       subtitle: `เปรียบเทียบโอกาสและยอดขายจริงผ่าน Dealer แยกตามกลุ่มสินค้าหลัก${dealerPeriodSuffix}`,
       category: 'Dealer Analytics'
     },
     {
       id: 'forecastProductChart',
       available: hasParsedRows && hasForecastMonths,
-      title: `คาดการณ์ยอดขายล่วงหน้า รายกลุ่มสินค้า (${unitText})`,
+      title: `คาดการณ์ยอดขายล่วงหน้า รายกลุ่มสินค้า (${forecastUnitText})`,
       subtitle: `แผนโอกาสขายล่วงหน้า (Sales Forecast - Ropp) แยกตามกลุ่มสินค้า${forecastRangeSuffix}`,
       category: 'Sales Forecast'
     },
     {
       id: 'forecastProjectChart',
       available: hasParsedRows && hasForecastMonths,
-      title: `คาดการณ์ยอดขายล่วงหน้า รายโครงการ (${unitText})`,
+      title: `คาดการณ์ยอดขายล่วงหน้า รายโครงการ (${forecastUnitText})`,
       subtitle: `Stacked Bar แสดงสัดส่วนกลุ่มสินค้าที่คาดการณ์ล่วงหน้าในแต่ละโครงการ${forecastSingleSuffix}`,
       category: 'Sales Forecast'
     }
@@ -545,13 +608,14 @@ function collectAvailableChartConfigs() {
 }
 
 /**
- * คำนวณข้อมูลตาราง Matrix คาดการณ์ยอดขาย (โครงการ x กลุ่มสินค้า) ตามโครงการที่เลือก
+ * คำนวณข้อมูลตาราง Matrix คาดการณ์ยอดขาย (โครงการ x กลุ่มสินค้า) ตามโครงการและหน่วยของส่วน Sales Forecast ที่เลือก
  * และตัดรายการสินค้าและโครงการที่ไม่มี Forecast (ยอด <= 0) ออกทั้งหมด
  */
 function computeForecastMatrixForPptx() {
   if (!Array.isArray(parsedDataRowsGlobal) || parsedDataRowsGlobal.length === 0) return null;
   if (!Array.isArray(availableForecastMonths) || availableForecastMonths.length === 0) return null;
 
+  const activeForecastMode = typeof forecastDisplayMode !== 'undefined' ? forecastDisplayMode : displayMode;
   const mMonth = document.getElementById('matrixMonthSelect');
   const rawIdx = mMonth ? parseInt(mMonth.value, 10) : NaN;
   const selectedMonthIdx = !Number.isNaN(rawIdx) ? rawIdx : 0;
@@ -578,7 +642,7 @@ function computeForecastMatrixForPptx() {
 
     const unitPrice = getUnitPrice(productGroup);
     const fUnit = parseNum(row[targetMonth.roppCol]);
-    const fVal = displayMode === 'baht' ? (fUnit * unitPrice) : fUnit;
+    const fVal = activeForecastMode === 'baht' ? (fUnit * unitPrice) : fUnit;
 
     if (fVal > 0) {
       if (!matrix[projectKey]) {
@@ -631,7 +695,7 @@ function addForecastMatrixSlides(pptx) {
   const matrixData = computeForecastMatrixForPptx();
   if (!matrixData) return;
 
-  const unitText = getUnitSuffix();
+  const unitText = typeof getForecastUnitSuffix === 'function' ? getForecastUnitSuffix() : getUnitSuffix();
   const MAX_COLS_PER_SLIDE = 6;
   const MAX_ROWS_PER_SLIDE = 10;
 
@@ -762,13 +826,15 @@ function addForecastMatrixSlides(pptx) {
 }
 
 /**
- * สร้างภาพ PNG พื้นหลังสีขาวจาก Chart.js บน Off-screen Canvas โดยกรองเฉพาะโครงการและช่วงเวลาที่เลือก
+ * สร้างภาพ PNG พื้นหลังสีขาวจาก Chart.js บน Off-screen Canvas โดยกรองเฉพาะโครงการ ช่วงเวลา และหน่วยแสดงผลที่เลือก
  */
 function renderOffscreenChartPngForSelectedProjects(chartId) {
   if (!parsedDataRowsGlobal || parsedDataRowsGlobal.length === 0) return null;
   if (typeof Chart === 'undefined') return null;
 
   const unitSuffix = getUnitSuffix();
+  const activeForecastMode = typeof forecastDisplayMode !== 'undefined' ? forecastDisplayMode : displayMode;
+  const forecastUnitSuffix = typeof getForecastUnitSuffix === 'function' ? getForecastUnitSuffix() : getUnitSuffix();
   let chartConfig = null;
 
   if (chartId === 'dealerCompMonthlyChart' || chartId === 'dealerCompProjectChart' || chartId === 'dealerCompProductChart') {
@@ -935,7 +1001,7 @@ function renderOffscreenChartPngForSelectedProjects(chartId) {
       }
       selectedMonths.forEach((fm, fIdx) => {
         const fUnit = parseNum(row[fm.roppCol]);
-        const fVal = displayMode === 'baht' ? (fUnit * unitPrice) : fUnit;
+        const fVal = activeForecastMode === 'baht' ? (fUnit * unitPrice) : fUnit;
         forecastProducts[productGroup][fIdx] += fVal;
       });
     });
@@ -950,7 +1016,7 @@ function renderOffscreenChartPngForSelectedProjects(chartId) {
       data: {
         labels: selectedMonths.map(m => m.monthYear),
         datasets: topProds.map(p => ({
-          label: p.name,
+          label: `${p.name} (${forecastUnitSuffix})`,
           data: p.vals,
           backgroundColor: getProductColor(p.name),
           borderRadius: 4
@@ -988,7 +1054,7 @@ function renderOffscreenChartPngForSelectedProjects(chartId) {
 
       const unitPrice = getUnitPrice(productGroup);
       const fUnit = parseNum(row[targetMonth.roppCol]);
-      const fVal = displayMode === 'baht' ? (fUnit * unitPrice) : fUnit;
+      const fVal = activeForecastMode === 'baht' ? (fUnit * unitPrice) : fUnit;
 
       if (fVal > 0) {
         projectTotals[projectName] = (projectTotals[projectName] || 0) + fVal;
@@ -1004,7 +1070,7 @@ function renderOffscreenChartPngForSelectedProjects(chartId) {
       .map(entry => entry[0]);
 
     const datasets = Array.from(allGroups).map(prod => ({
-      label: prod,
+      label: `${prod} (${forecastUnitSuffix})`,
       data: topProjects.map(proj => (projectProductMap[proj] && projectProductMap[proj][prod]) || 0),
       backgroundColor: getProductColor(prod),
       borderRadius: 2
@@ -1214,7 +1280,12 @@ function createBasePptxInstance(title) {
 
 function getCurrentFilterMetadataText() {
   const projLabel = getSelectedProjectsSummaryLabel();
-  const unitLabel = displayMode === 'baht' ? 'มูลค่า (บาท)' : 'ปริมาณ (Unit)';
+  const mainUnit = displayMode === 'baht' ? 'บาท' : 'Unit';
+  const fMode = typeof forecastDisplayMode !== 'undefined' ? forecastDisplayMode : displayMode;
+  const fUnit = fMode === 'baht' ? 'บาท' : 'Unit';
+  const unitLabel = mainUnit === fUnit
+    ? (mainUnit === 'บาท' ? 'มูลค่า (บาท)' : 'ปริมาณ (Unit)')
+    : `หลัก: ${mainUnit} | Forecast: ${fUnit}`;
   const dateLabel = new Date().toLocaleDateString('th-TH', {
     year: 'numeric',
     month: 'long',
@@ -1312,7 +1383,7 @@ function addSectionDividerSlide(pptx, sectionNumber, sectionTitle, sectionDesc, 
   });
 }
 
-function addSlideHeaderBar(slide, pptx, badgeText, badgeColor, titleText, subText) {
+function addSlideHeaderBar(slide, pptx, badgeText, badgeColor, titleText, subText, options = {}) {
   slide.background = { color: 'F8FAFC' };
 
   slide.addShape(pptx.ShapeType.rect, {
@@ -1330,14 +1401,17 @@ function addSlideHeaderBar(slide, pptx, badgeText, badgeColor, titleText, subTex
     fontFace: 'Tahoma', fontSize: 10, bold: true, color: 'FFFFFF', align: 'center', valign: 'middle'
   });
 
+  const maxTextW = options.maxTextW || 10.3;
+  const subFontSize = String(subText || '').length > 75 ? 9 : 10;
+
   slide.addText(titleText, {
-    x: 2.55, y: 0.14, w: 10.3, h: 0.38,
+    x: 2.55, y: 0.10, w: maxTextW, h: 0.36,
     fontFace: 'Tahoma', fontSize: 16, bold: true, color: '0F172A', valign: 'middle'
   });
 
   slide.addText(subText, {
-    x: 2.55, y: 0.50, w: 10.3, h: 0.30,
-    fontFace: 'Tahoma', fontSize: 10, color: '64748B', valign: 'middle'
+    x: 2.55, y: 0.46, w: maxTextW, h: 0.42,
+    fontFace: 'Tahoma', fontSize: subFontSize, color: '64748B', valign: 'top', wrap: true
   });
 }
 
@@ -1559,7 +1633,8 @@ function buildSiteReportSlides(pptx, visits, includeSectionDivider) {
 
     const shortProjName = truncateProjectName20(item.projectName || 'ไม่ระบุชื่อโครงการ');
     const projTitle = `${index + 1}. ${shortProjName}${item.projectId && item.projectId !== '-' ? ` (${item.projectId})` : ''}`;
-    const subInfo = `ผู้รับเหมา: ${item.contractor || '-'}   |   วันที่เข้าตรวจ: ${item.visitDate || '-'}`;
+    const formattedDates = collectAllUniqueVisitDates([item]) || (item.visitDate || '-');
+    const subInfo = `ผู้รับเหมา: ${item.contractor || '-'}   |   วันที่เข้าตรวจ: ${formattedDates}`;
 
     addSlideHeaderBar(
       slide,
@@ -1567,7 +1642,8 @@ function buildSiteReportSlides(pptx, visits, includeSectionDivider) {
       'SITE REPORT',
       '0284C7',
       projTitle,
-      subInfo
+      subInfo,
+      { maxTextW: 8.15 }
     );
 
     let riskBg = 'DCFCE7';

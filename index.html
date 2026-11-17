@@ -218,7 +218,7 @@
               </h2>
             </div>
             <p class="text-xs text-sky-700 mt-1">
-              แนบรูปภาพหน้างานบันทึกเก็บทันที (ย่อขนาด ≤ 100 KB อัตโนมัติ) หรือกดปุ่ม AI เพื่อสกัดข้อความอัตโนมัติ (กรองตามโครงการหลักด้านบนและเดือนที่เลือก)
+              แนบรูปภาพหน้างานบันทึกทันที (ย่อขนาด ≤ 100 KB อัตโนมัติ) หรือกดปุ่ม AI เพื่อสกัดข้อความอัตโนมัติ (กรองตามโครงการหลักด้านบนและเดือนที่เลือก)
             </p>
           </div>
           
@@ -462,6 +462,15 @@
             </p>
           </div>
           <div class="flex flex-wrap items-center gap-2">
+            <!-- Filter ย่อย: หน่วยแสดงผลเฉพาะส่วน Sales Forecast -->
+            <div class="inline-flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm">
+              <span class="text-indigo-900">📊 หน่วย Forecast:</span>
+              <select id="forecastUnitDisplayModeSelect" class="bg-white text-indigo-700 font-bold px-2 py-0.5 rounded border border-indigo-300 focus:outline-none cursor-pointer">
+                <option value="baht">มูลค่า (บาท)</option>
+                <option value="unit">ปริมาณ (หน่วยสินค้า)</option>
+              </select>
+            </div>
+
             <!-- Multi-select Filter กลุ่มสินค้า -->
             <div class="relative">
               <button id="forecastProductDropdownBtn" type="button" class="inline-flex items-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all">
@@ -1341,8 +1350,8 @@
             <!-- ตัวเลือกที่ 2: เฉพาะ Site Report -->
             <button type="button" onclick="executePptxExport('site_only')"
                     class="pptx-export-action-btn p-3.5 rounded-xl border border-sky-200 bg-sky-50/50 hover:bg-sky-100/70 text-left transition-all flex flex-col justify-between gap-1.5">
-              <div class="font-bold text-sky-950 text-sm flex items-center gap-1.5">
-                <span>📸</span> เฉพาะ Site Report
+              <div class="flex items-center justify-between">
+                <span class="font-bold text-sky-950 text-sm flex items-center gap-1.5"><span>📸</span> เฉพาะ Site Report</span>
               </div>
               <p class="text-[11px] text-sky-800 leading-relaxed">
                 สไลด์รายงานหน้างาน ความคืบหน้า แผนเรียกสินค้า ปัญหา/ความเสี่ยง และรูปถ่ายหน้างาน
@@ -1352,8 +1361,8 @@
             <!-- ตัวเลือกที่ 3: เฉพาะกราฟวิเคราะห์ ตารางคาดการณ์ และ KPI อื่นๆ -->
             <button type="button" onclick="executePptxExport('charts_only')"
                     class="pptx-export-action-btn p-3.5 rounded-xl border border-indigo-200 bg-indigo-50/50 hover:bg-indigo-100/70 text-left transition-all flex flex-col justify-between gap-1.5">
-              <div class="font-bold text-indigo-950 text-sm flex items-center gap-1.5">
-                <span>📊</span> เฉพาะกราฟ ตารางคาดการณ์ & KPI
+              <div class="flex items-center justify-between">
+                <span class="font-bold text-indigo-950 text-sm flex items-center gap-1.5"><span>📊</span> เฉพาะกราฟ ตารางคาดการณ์ & KPI</span>
               </div>
               <p class="text-[11px] text-indigo-800 leading-relaxed">
                 สไลด์สรุป KPI, กราฟ Ropp vs Dealer Actual, กราฟ Sales Forecast และตาราง Matrix คาดการณ์ยอดขาย
@@ -1363,8 +1372,8 @@
             <!-- ตัวเลือกที่ 4: รวมทั้งหมดใน 1 ไฟล์ (คั่นหมวดชัดเจน) -->
             <button type="button" onclick="executePptxExport('combined')"
                     class="pptx-export-action-btn p-3.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-left transition-all flex flex-col justify-between gap-1.5">
-              <div class="font-bold text-slate-900 text-sm flex items-center gap-1.5">
-                <span>📑</span> รวมทั้ง 2 ส่วนใน 1 ไฟล์
+              <div class="flex items-center justify-between">
+                <span class="font-bold text-slate-900 text-sm flex items-center gap-1.5"><span>📑</span> รวมทั้ง 2 ส่วนใน 1 ไฟล์</span>
               </div>
               <p class="text-[11px] text-slate-600 leading-relaxed">
                 รวมสไลด์ทั้งหมดไว้ในไฟล์เดียว โดยคั่นหน้าแบ่งหมวด Section 01 (กราฟ/ตาราง/KPI) และ Section 02 (Site Report)
