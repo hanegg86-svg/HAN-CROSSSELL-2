@@ -71,6 +71,11 @@
 
         <!-- กลุ่มปุ่มเครื่องมือและอัปโหลดไฟล์ (พับเก็บได้บนมือถือ แสดงเต็มบนคอมพิวเตอร์) -->
         <div id="headerToolsContainer" class="hidden md:flex grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-1.5 md:gap-2 pt-1.5 md:pt-0 border-t border-slate-100 md:border-none">
+          <!-- ปุ่มตั้งรหัสผ่านล็อกแอปและเข้ารหัส IndexedDB -->
+          <button id="openSecurityLockModalBtn" type="button" onclick="openSecurityPasswordModal()" class="inline-flex items-center justify-center md:justify-start gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-[11px] md:text-xs font-semibold px-2.5 py-1.5 md:px-3 md:py-2 rounded-lg transition-all shadow-sm">
+            <span>🛡️</span> <span id="securityLockBtnLabel">ตั้งรหัสล็อกแอป</span>
+          </button>
+
           <!-- ปุ่มรวมข้อมูลโครงการ (เฉพาะ Actual และ Report Site Visit) -->
           <button id="openMergeProjectsModalBtn" type="button" onclick="openMergeProjectsModal()" class="inline-flex items-center justify-center md:justify-start gap-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-300 text-[11px] md:text-xs font-semibold px-2.5 py-1.5 md:px-3 md:py-2 rounded-lg transition-all shadow-sm">
             <span>🔗</span> <span>รวมข้อมูลโครงการ</span>
@@ -143,9 +148,16 @@
       <div class="flex items-start">
         <span class="text-xl mr-3">⚠️</span>
         <div class="flex-1">
-          <h3 class="text-sm font-bold text-amber-800">พบสินค้าที่ยังไม่มีข้อมูลในตารางราคาต่อหน่วย (<span id="missingCount">0</span> รายการ)</h3>
-          <p class="text-xs text-amber-700 mt-1">หากเลือกแสดงเป็นบาท สินค้าเหล่านี้จะถูกคำนวณเป็น 0 บาท โปรดอัปโหลดไฟล์ราคาต่อหน่วยเพิ่มเติม:</p>
-          <div id="missingList" class="flex flex-wrap gap-1.5 mt-2"></div>
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h3 class="text-sm font-bold text-amber-800">พบสินค้าที่ยังไม่มีข้อมูลในตารางราคาต่อหน่วย (<span id="missingCount">0</span> รายการ)</h3>
+              <p class="text-xs text-amber-700 mt-1">หากเลือกแสดงเป็นบาท สินค้าเหล่านี้จะถูกคำนวณเป็น 0 บาท โปรดอัปโหลดไฟล์ราคาต่อหน่วยส่วนตัว (.csv):</p>
+            </div>
+            <button type="button" onclick="downloadPriceTemplateCSV()" class="inline-flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm transition-all shrink-0">
+              <span>📥</span> <span>ดาวน์โหลดไฟล์ต้นแบบราคา (.csv)</span>
+            </button>
+          </div>
+          <div id="missingList" class="flex flex-wrap gap-1.5 mt-2.5"></div>
         </div>
       </div>
     </div>
@@ -677,7 +689,7 @@
           <input type="password" id="geminiApiKeyInput" placeholder="AIzaSy..." 
                  class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono text-sm">
           <p class="text-[11px] text-slate-400 mt-1.5">
-            🔒 คีย์จะถูกจัดเก็บบน <strong>IndexedDB</strong> ในเบราว์เซอร์ของคุณเท่านั้น ปลอดภัย ไม่มีการส่งกลับไปยังเซิร์ฟเวอร์ภายนอกใดๆ
+            🔒 คีย์จะถูกจัดเก็บบน <strong>IndexedDB</strong> ในเบราว์เซอร์ของคุณเท่านั้น และส่งผ่าน Header <code>x-goog-api-key</code> ไม่ติดไปกับ URL
           </p>
         </div>
         <div id="keyStatusBadge" class="p-2.5 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-between text-slate-600">
@@ -1033,7 +1045,7 @@
     </div>
   </div>
 
-  <!-- Modal 8: Backup JSON Modal (เลือกหมวดหมู่ที่จะ Backup ได้) -->
+  <!-- Modal 8: Backup JSON Modal (เลือกหมวดหมู่และเข้ารหัสด้วยรหัสผ่าน AES-GCM ได้) -->
   <div id="backupJsonModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
     <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-100">
       <div class="p-5 border-b border-slate-200 bg-slate-100/80 flex justify-between items-center">
@@ -1057,7 +1069,7 @@
             <button type="button" onclick="toggleAllBackupCategories(false)" class="text-[11px] text-slate-500 hover:underline">ล้างการเลือก</button>
           </div>
         </div>
-        <div id="backupCategoriesContainer" class="space-y-2 max-h-64 overflow-y-auto custom-scrollbar pr-0.5">
+        <div id="backupCategoriesContainer" class="space-y-2 max-h-56 overflow-y-auto custom-scrollbar pr-0.5">
           <label class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100/80 border border-slate-200 cursor-pointer transition-colors">
             <div class="flex items-center gap-2.5">
               <input type="checkbox" id="backupCatSales" class="backup-cat-checkbox rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5">
@@ -1100,6 +1112,12 @@
             </div>
             <span id="backupStatApiKey" class="text-[11px] font-bold text-slate-400">กำลังตรวจ...</span>
           </label>
+        </div>
+        <div class="p-3 rounded-xl bg-indigo-50/60 border border-indigo-200 space-y-1.5">
+          <label class="block font-bold text-indigo-950">🔐 รหัสผ่านเข้ารหัสไฟล์ Backup (ไม่บังคับ):</label>
+          <input type="password" id="backupJsonPasswordInput" placeholder="ระบุรหัสผ่านเพื่อเข้ารหัสไฟล์ (เว้นว่างหากไม่เข้ารหัส)"
+                 class="w-full px-3 py-1.5 border border-indigo-200 rounded-lg bg-white text-slate-800 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <p class="text-[10px] text-indigo-700">หากระบุรหัสผ่าน ไฟล์ .json จะถูกเข้ารหัสด้วย AES-GCM 256-bit และต้องใช้รหัสผ่านนี้ตอน Restore</p>
         </div>
       </div>
       <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
@@ -1388,14 +1406,117 @@
     </div>
   </div>
 
+  <!-- Modal 11: App Unlock Overlay Modal (ปลดล็อกฐานข้อมูลเมื่อเปิดแอป) -->
+  <div id="appUnlockOverlayModal" class="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-[100] hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden border border-slate-200">
+      <div class="p-5 bg-indigo-950 text-white text-center space-y-1.5">
+        <div class="w-12 h-12 bg-indigo-800/80 rounded-2xl flex items-center justify-center mx-auto text-2xl shadow-inner">🔐</div>
+        <h3 class="text-base font-bold">ฐานข้อมูลถูกเข้ารหัสและล็อกไว้</h3>
+        <p class="text-[11px] text-indigo-200">กรุณากรอกรหัสผ่านเพื่อถอดรหัสข้อมูลใน IndexedDB และเข้าใช้งาน</p>
+      </div>
+      <form onsubmit="event.preventDefault(); handleUnlockAppSubmit();" class="p-5 space-y-3 text-xs">
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">รหัสผ่านปลดล็อกแอป:</label>
+          <input type="password" id="appUnlockPasswordInput" autocomplete="current-password" placeholder="กรอกรหัสผ่าน..."
+                 class="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm font-mono">
+        </div>
+        <div id="appUnlockErrorMsg" class="hidden text-rose-600 font-semibold text-[11px] bg-rose-50 border border-rose-200 px-3 py-2 rounded-lg">
+          รหัสผ่านไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง
+        </div>
+        <button type="submit" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-sm transition-colors text-xs">
+          🔓 ปลดล็อกเข้าใช้งาน
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 12: Security Password Settings Modal (ตั้งรหัสผ่านล็อกแอปและเข้ารหัส IndexedDB) -->
+  <div id="securityPasswordModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-100">
+      <div class="p-5 border-b border-indigo-100 bg-indigo-50/80 flex justify-between items-center">
+        <div class="flex items-center gap-2">
+          <span class="text-xl">🛡️</span>
+          <div>
+            <h3 class="text-base font-bold text-indigo-950">ตั้งรหัสผ่านล็อกและเข้ารหัสข้อมูล</h3>
+            <p class="text-[11px] text-indigo-700">เข้ารหัสข้อมูลทั้งหมดใน IndexedDB ด้วย AES-GCM 256-bit</p>
+          </div>
+        </div>
+        <button onclick="closeSecurityPasswordModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-full">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="p-5 space-y-3.5 text-xs">
+        <div class="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+          <span class="text-slate-600 font-medium">สถานะการเข้ารหัสฐานข้อมูล:</span>
+          <span id="securityEncryptionStatusText" class="font-bold text-amber-600">ยังไม่ได้ตั้งรหัสผ่าน</span>
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">กำหนดรหัสผ่านใหม่ (อย่างน้อย 4 ตัวอักษร):</label>
+          <input type="password" id="newSecurityPasswordInput" autocomplete="new-password" placeholder="กรอกรหัสผ่านใหม่..."
+                 class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm">
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">ยืนยันรหัสผ่านอีกครั้ง:</label>
+          <input type="password" id="confirmSecurityPasswordInput" autocomplete="new-password" placeholder="กรอกรหัสผ่านซ้ำอีกครั้ง..."
+                 class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm">
+        </div>
+        <p class="text-[11px] text-slate-500 leading-relaxed">
+          ⚠️ <strong>คำเตือน:</strong> ระบบไม่บันทึกรหัสผ่านจริงไว้ในเครื่อง หากลืมรหัสผ่านจะไม่สามารถกู้คืนข้อมูลที่เข้ารหัสใน IndexedDB ได้ (แนะนำให้สำรอง Backup JSON ไว้เสมอ)
+        </p>
+      </div>
+      <div class="p-4 border-t border-slate-100 bg-slate-50 flex flex-wrap justify-between gap-2">
+        <div class="flex gap-1.5">
+          <button id="disableSecurityPasswordBtn" type="button" onclick="handleDisableAppPassword()" class="hidden px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold rounded-lg transition-colors">
+            ยกเลิกรหัสผ่าน
+          </button>
+          <button id="manualLockAppBtn" type="button" onclick="handleManualLockApp()" class="hidden px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-semibold rounded-lg transition-colors">
+            🔒 ล็อกทันที
+          </button>
+        </div>
+        <div class="flex gap-2 ml-auto">
+          <button type="button" onclick="closeSecurityPasswordModal()" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded-lg transition-colors">
+            ปิด
+          </button>
+          <button type="button" onclick="handleSaveAppPassword()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors">
+            💾 บันทึกรหัสผ่าน
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 13: Restore Decrypt Modal (กรอกรหัสผ่านเพื่อถอดรหัสไฟล์ Backup JSON) -->
+  <div id="restoreDecryptModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden border border-slate-100">
+      <div class="p-4 border-b border-indigo-100 bg-indigo-50 flex justify-between items-center">
+        <div class="flex items-center gap-2">
+          <span class="text-lg">🔐</span>
+          <h3 class="text-sm font-bold text-indigo-950">ไฟล์ Backup นี้ถูกเข้ารหัสไว้</h3>
+        </div>
+        <button onclick="closeRestoreDecryptModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-full">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <form onsubmit="event.preventDefault(); confirmRestoreEncryptedBackup();" class="p-4 space-y-3 text-xs">
+        <p class="text-slate-600">กรุณากรอกรหัสผ่านที่ใช้ตอนสำรองข้อมูลเพื่อถอดรหัสไฟล์ Backup JSON</p>
+        <input type="password" id="restoreBackupPasswordInput" placeholder="รหัสผ่านถอดรหัสไฟล์..."
+               class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm">
+        <div class="flex justify-end gap-2 pt-1">
+          <button type="button" onclick="closeRestoreDecryptModal()" class="px-3.5 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold rounded-lg">ยกเลิก</button>
+          <button type="submit" class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg shadow-sm">ถอดรหัสและกู้คืน</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- 7 Modular App Scripts -->
-  <script src="db.js?v=16"></script>
-  <script src="state.js?v=16"></script>
-  <script src="dealer.js?v=16"></script>
-  <script src="forecast.js?v=16"></script>
-  <script src="site-visit.js?v=16"></script>
-  <script src="sales-engine.js?v=16"></script>
-  <script src="pptx-export.js?v=16"></script>
+  <script src="db.js?v=17"></script>
+  <script src="state.js?v=17"></script>
+  <script src="dealer.js?v=17"></script>
+  <script src="forecast.js?v=17"></script>
+  <script src="site-visit.js?v=17"></script>
+  <script src="sales-engine.js?v=17"></script>
+  <script src="pptx-export.js?v=17"></script>
 
   <!-- PWA Service Worker Registration -->
   <script>

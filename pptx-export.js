@@ -3,7 +3,7 @@
  * สร้างไฟล์ PowerPoint (.pptx) ด้วย PptxGenJS แบบ Widescreen 16:9
  * รองรับการเลือกโครงการแบบ Multi-Select (1 โครงการ, หลายโครงการ หรือทั้งหมด)
  * ตัดชื่อโครงการที่ยาวเกิน 20 ตัวอักษรเหลือ 20 ตัวอักษรในหัวข้อสไลด์เพื่อไม่ให้ล้นขอบ
- * รองรับตัวเลือก AI (gemini-3.5-flash-lite) สรุปรวม Site Report รายโครงการให้เหลือ 1 หน้าสไลด์เฉพาะตอนสร้างไฟล์ PPTX
+ * รองรับตัวเลือก AI (gemini-3.5-flash-lite ส่งคีย์ผ่าน Header x-goog-api-key) สรุปรวม Site Report รายโครงการให้เหลือ 1 หน้าสไลด์
  * เพิ่มสไลด์ตาราง Matrix คาดการณ์ยอดขาย (โครงการ x กลุ่มสินค้า) โดยตัดรายการสินค้าและโครงการที่ไม่มี Forecast ออกอัตโนมัติ
  * ดึงตัวกรองช่วงเดือนและกลุ่มสินค้าจากหน้าจอมาสร้างกราฟอย่างแม่นยำ (รองรับการเลือกเดือนแรกสุด index 0)
  * และแยกส่งออกระหว่าง "Site Report (รายงานหน้างานและรูปถ่าย)" และ "กราฟวิเคราะห์, ตารางคาดการณ์ และ KPI อื่นๆ"
@@ -370,7 +370,7 @@ async function prepareSummarizedSiteVisitsForPptx(visits, statusTextEl) {
 }
 
 /**
- * เรียกใช้โมเดล gemini-3.5-flash-lite เพื่อสรุปรวมรายงานหลายรายการของ 1 โครงการ
+ * เรียกใช้โมเดล gemini-3.5-flash-lite เพื่อสรุปรวมรายงานหลายรายการของ 1 โครงการ (ส่งคีย์ผ่าน Header x-goog-api-key)
  */
 async function summarizeSingleProjectGroupWithAI(group, combinedImages, apiKey) {
   const rawReportsText = group.items.map((item, idx) => {
@@ -401,11 +401,14 @@ async function summarizeSingleProjectGroupWithAI(group, combinedImages, apiKey) 
 ${rawReportsText}`;
 
   try {
-    // บังคับใช้โมเดล gemini-3.5-flash-lite เท่านั้น
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${encodeURIComponent(apiKey)}`;
+    // บังคับใช้โมเดล gemini-3.5-flash-lite เท่านั้น และส่งคีย์ผ่าน HTTP Header (x-goog-api-key)
+    const endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent';
     const response = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey
+      },
       body: JSON.stringify({
         contents: [{ parts: [{ text: promptText }] }],
         generationConfig: {
