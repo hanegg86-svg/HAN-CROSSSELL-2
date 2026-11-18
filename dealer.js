@@ -6,6 +6,7 @@
  * 2. ช่องหน่วย (Unit) ดึงจากช่อง AM (Report_Unit) / Sales_Unit
  * 3. คงค่าช่วงเวลาที่เลือกไว้ (ไม่ Reset) เมื่อสลับหน่วย และอัปเดตสรุป KPI
  * 4. รองรับการรวมยอด Dealer Actual เข้าโครงการหลัก (Main Project) ตามกฎการรวมโครงการ
+ * 5. อัปเดตรายชื่อกลุ่มสินค้าที่เคยเกิด Actual เพื่อเชื่อมกับตัวกรองในส่วน Sales Forecast อัตโนมัติ
  */
 
 function handleDealerFile(file) {
@@ -135,6 +136,19 @@ function processDealerCSV(rows) {
 
   if (typeof updateKpiSummary === 'function') {
     updateKpiSummary();
+  }
+
+  // อัปเดตรายชื่อสินค้าที่เคยเกิด Actual สำหรับตัวกรองในส่วน Sales Forecast
+  if (typeof refreshDealerActualForecastSelection === 'function') {
+    refreshDealerActualForecastSelection(false);
+  }
+  if (typeof renderForecastProductCheckboxes === 'function') {
+    renderForecastProductCheckboxes();
+  }
+  if (typeof forecastOnlyDealerActual !== 'undefined' && forecastOnlyDealerActual) {
+    if (typeof updateForecastProductChart === 'function') updateForecastProductChart();
+    if (typeof updateForecastProjectChart === 'function') updateForecastProjectChart();
+    if (typeof updateForecastMatrix === 'function') updateForecastMatrix();
   }
 }
 

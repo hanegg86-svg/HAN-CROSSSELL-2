@@ -4,7 +4,97 @@
  * ปรับปรุง:
  * 1. คงค่าเดือนที่เลือกไว้เดิมเมื่อสลับหน่วยแสดงผล (ไม่ Reset)
  * 2. แยกหน่วยแสดงผล (forecastDisplayMode: บาท / หน่วยสินค้า) อิสระจากตัวกรองหลักของแอป
+ * 3. รองรับตัวกรอง "เฉพาะสินค้าที่เคยเกิด Actual (Dealer)" และสามารถกดติ๊กเพิ่ม/ลดสินค้าอื่นเองได้ใน Dropdown
  */
+
+/**
+ * คำนวณรายชื่อกลุ่มสินค้าที่เคยเกิด Actual ในไฟล์ Dealer ตามโครงการที่เลือก
+ * และอัปเดตชุดสินค้าที่เลือก (selectedForecastProducts) เมื่อเปิดใช้งานตัวกรองเฉพาะสินค้าที่เคยเกิด Actual
+ */
+function refreshDealerActualForecastSelection(resetManualOverrides = false) {
+  dealerActualProductGroupsSet.clear();
+
+  const proj = selectedMasterProject !== 'all' ? projectsMapGlobal[selectedMasterProject] : null;
+
+  if (Array.isArray(matchedDealerList)) {
+    matchedDealerList.forEach(item => {
+      if (!item) return;
+      if (selectedMasterProject !== 'all') {
+        const isMatch = item.projectId === selectedMasterProject ||
+                        item.projectName === selectedMasterProject ||
+                        (proj && (item.projectId === proj.id || item.projectName === proj.name));
+        if (!isMatch) return;
+      }
+
+      if ((item.actual > 0 || item.netAmount > 0) && item.productGroup && item.productGroup !== '-') {
+        dealerActualProductGroupsSet.add(item.productGroup.trim());
+      }
+    });
+  }
+
+  const badgeEl = document.getElementById('forecastDealerActualCountBadge');
+  if (badgeEl) {
+    badgeEl.textContent = String(dealerActualProductGroupsSet.size);
+  }
+
+  if (resetManualOverrides) {
+    manualAddedForecastProducts.clear();
+    manualRemovedForecastProducts.clear();
+  }
+
+  if (forecastOnlyDealerActual) {
+    const nextSelected = new Set();
+    allForecastProductGroups.forEach(p => {
+      const hasActual = dealerActualProductGroupsSet.has(p);
+      if (hasActual && !manualRemovedForecastProducts.has(p)) {
+        nextSelected.add(p);
+      } else if (!hasActual && manualAddedForecastProducts.has(p)) {
+        nextSelected.add(p);
+      }
+    });
+    selectedForecastProducts = nextSelected;
+  }
+
+  const hintEl = document.getElementById('forecastDropdownHintText');
+  if (hintEl) {
+    if (forecastOnlyDealerActual) {
+      hintEl.textContent = 'กำลังกรองเฉพาะสินค้าที่มี Actual — สามารถติ๊กเพิ่มสินค้าที่ "ไม่มี Actual" เข้ามาเองได้';
+      hintEl.className = 'text-[10px] text-emerald-800 bg-emerald-50 px-2 py-1 rounded border border-emerald-200 font-medium';
+    } else {
+      hintEl.textContent = 'สามารถติ๊กเพิ่มหรือลดกลุ่มสินค้าที่ต้องการแสดงในกราฟและตารางได้อิสระ';
+      hintEl.className = 'text-[10px] text-slate-500 bg-slate-50 px-2 py-1 rounded border border-slate-100';
+    }
+  }
+}
+
+/**
+ * จัดการเมื่อผู้ใช้กดติ๊กเปิด/ปิดตัวกรอง "เฉพาะสินค้าที่เคยเกิด Actual (Dealer)"
+ */
+function handleForecastOnlyDealerActualChange(isChecked) {
+  if (isChecked && (!Array.isArray(matchedDealerList) || matchedDealerList.length === 0)) {
+    alert('ยังไม่มีข้อมูลยอดขายจากไฟล์ Dealer CSV (กรุณาอัปโหลดไฟล์ Dealer CSV ก่อนใช้งานตัวกรองนี้)');
+    const cb = document.getElementById('forecastOnlyDealerActualCheckbox');
+    if (cb) cb.checked = false;
+    forecastOnlyDealerActual = false;
+    return;
+  }
+
+  forecastOnlyDealerActual = Boolean(isChecked);
+  manualAddedForecastProducts.clear();
+  manualRemovedForecastProducts.clear();
+
+  if (forecastOnlyDealerActual) {
+    refreshDealerActualForecastSelection(true);
+  } else {
+    selectedForecastProducts = new Set(allForecastProductGroups);
+    refreshDealerActualForecastSelection(true);
+  }
+
+  renderForecastProductCheckboxes();
+  updateForecastProductChart();
+  updateForecastProjectChart();
+  updateForecastMatrix();
+}
 
 function initForecastControls() {
   if (!availableForecastMonths || availableForecastMonths.length === 0) return;
@@ -15,9 +105,13 @@ function initForecastControls() {
   const fSingle = document.getElementById('forecastProjectSingleMonthSelect');
   const mMonth = document.getElementById('matrixMonthSelect');
   const fUnitSelect = document.getElementById('forecastUnitDisplayModeSelect');
+  const fOnlyActualCb = document.getElementById('forecastOnlyDealerActualCheckbox');
 
   if (fUnitSelect) {
     fUnitSelect.value = forecastDisplayMode;
+  }
+  if (fOnlyActualCb) {
+    fOnlyActualCb.checked = Boolean(forecastOnlyDealerActual);
   }
 
   const curFStart = fStart ? fStart.value : null;
@@ -55,6 +149,7 @@ function initForecastControls() {
     mMonth.value = "0";
   }
 
+  refreshDealerActualForecastSelection(false);
   renderForecastProductCheckboxes();
   updateForecastProductChart();
   updateForecastProjectChart();
@@ -68,14 +163,30 @@ function renderForecastProductCheckboxes() {
     elList.innerHTML = `<div class="text-slate-400 py-1">ไม่พบกลุ่มสินค้า</div>`;
     return;
   }
+
+  const hasDealerData = Array.isArray(matchedDealerList) && matchedDealerList.length > 0;
+
   elList.innerHTML = allForecastProductGroups.map(p => {
     const isChecked = selectedForecastProducts.has(p);
+    const hasActual = dealerActualProductGroupsSet.has(p);
+    const isManualAdded = forecastOnlyDealerActual && !hasActual && isChecked;
     const jsVal = escapeJsString(p);
+
+    let statusBadgeHtml = '';
+    if (isManualAdded) {
+      statusBadgeHtml = `<span class="text-[10px] px-1.5 py-0.2 rounded bg-purple-100 text-purple-700 font-semibold shrink-0">เพิ่มเอง</span>`;
+    } else if (hasActual) {
+      statusBadgeHtml = `<span class="text-[10px] px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-700 font-semibold shrink-0">มี Actual</span>`;
+    } else if (hasDealerData) {
+      statusBadgeHtml = `<span class="text-[10px] px-1.5 py-0.2 rounded bg-slate-100 text-slate-400 shrink-0">ไม่มี Actual</span>`;
+    }
+
     return `
       <label class="flex items-center gap-2 hover:bg-slate-50 p-1 rounded cursor-pointer transition-colors">
         <input type="checkbox" value="${escapeHtml(p)}" ${isChecked ? 'checked' : ''} onchange="toggleForecastProduct('${jsVal}')"
-               class="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5">
-        <span class="truncate flex-1" title="${escapeHtml(p)}">${escapeHtml(p)}</span>
+               class="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 shrink-0">
+        <span class="truncate flex-1 ${isChecked ? 'font-medium text-slate-800' : 'text-slate-500'}" title="${escapeHtml(p)}">${escapeHtml(p)}</span>
+        ${statusBadgeHtml}
       </label>
     `;
   }).join('');
@@ -83,12 +194,29 @@ function renderForecastProductCheckboxes() {
 }
 
 function toggleForecastProduct(prodName) {
+  const hasActual = dealerActualProductGroupsSet.has(prodName);
+
   if (selectedForecastProducts.has(prodName)) {
     selectedForecastProducts.delete(prodName);
+    if (forecastOnlyDealerActual) {
+      if (hasActual) {
+        manualRemovedForecastProducts.add(prodName);
+      } else {
+        manualAddedForecastProducts.delete(prodName);
+      }
+    }
   } else {
     selectedForecastProducts.add(prodName);
+    if (forecastOnlyDealerActual) {
+      if (hasActual) {
+        manualRemovedForecastProducts.delete(prodName);
+      } else {
+        manualAddedForecastProducts.add(prodName);
+      }
+    }
   }
-  updateForecastProductDropdownLabel();
+
+  renderForecastProductCheckboxes();
   updateForecastProductChart();
   updateForecastProjectChart();
   updateForecastMatrix();
@@ -97,8 +225,24 @@ function toggleForecastProduct(prodName) {
 function selectAllForecastProducts(shouldSelectAll) {
   if (shouldSelectAll) {
     selectedForecastProducts = new Set(allForecastProductGroups);
+    if (forecastOnlyDealerActual) {
+      manualRemovedForecastProducts.clear();
+      allForecastProductGroups.forEach(p => {
+        if (!dealerActualProductGroupsSet.has(p)) {
+          manualAddedForecastProducts.add(p);
+        }
+      });
+    }
   } else {
     selectedForecastProducts.clear();
+    if (forecastOnlyDealerActual) {
+      manualAddedForecastProducts.clear();
+      allForecastProductGroups.forEach(p => {
+        if (dealerActualProductGroupsSet.has(p)) {
+          manualRemovedForecastProducts.add(p);
+        }
+      });
+    }
   }
   renderForecastProductCheckboxes();
   updateForecastProductChart();
@@ -111,6 +255,19 @@ function updateForecastProductDropdownLabel() {
   if (!label) return;
   const count = selectedForecastProducts.size;
   const total = allForecastProductGroups.length;
+
+  if (forecastOnlyDealerActual) {
+    const manualAddedCount = Array.from(selectedForecastProducts).filter(p => !dealerActualProductGroupsSet.has(p)).length;
+    if (count === 0) {
+      label.textContent = 'ไม่ได้เลือกกลุ่มสินค้า (0)';
+    } else if (manualAddedCount > 0) {
+      label.textContent = `Actual + เพิ่มเอง (${count}/${total})`;
+    } else {
+      label.textContent = `เฉพาะที่มี Actual (${count}/${total})`;
+    }
+    return;
+  }
+
   if (count === total) {
     label.textContent = 'เลือกกลุ่มสินค้าทั้งหมด';
   } else if (count === 0) {
@@ -452,3 +609,6 @@ function exportForecastMatrixToExcel() {
   });
   downloadExcel(excelData, `Forecast_Matrix_${monthName || 'Month'}_${forecastDisplayMode}`, 'Matrix');
 }
+
+window.refreshDealerActualForecastSelection = refreshDealerActualForecastSelection;
+window.handleForecastOnlyDealerActualChange = handleForecastOnlyDealerActualChange;

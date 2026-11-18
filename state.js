@@ -1,86 +1,21 @@
 /**
  * Global State & Utilities (state.js)
- * รวมตัวแปร State กลาง, Master ราคาต่อหน่วย, กฎการรวมโครงการ (เฉพาะ Actual & Site Visit) และฟังก์ชันยูทิลิตี้พื้นฐาน
+ * รวมตัวแปร State กลาง, Master ราคาต่อหน่วย (ใช้เฉพาะจากไฟล์ที่อัปโหลด), กฎการรวมโครงการ (เฉพาะ Actual & Site Visit) และฟังก์ชันยูทิลิตี้พื้นฐาน
  */
 let geminiApiKey = '';
 let selectedMasterProject = 'all'; // ตัวกรองโครงการหลักจุดเดียวคุมทั้ง App
 let projectMergeRules = []; // กฎการรวมโครงการ: [{ mainKey, mainId, mainName, sources: [{ key, id, name }] }]
 
-let unitPrices = {
-  "คอนกรีตผสมเสร็จ (CPAC &FC)": 1859,
-  "คอนกรีตผสมเสร็จ": 1859,
-  "หลังคา CPAC": 88,
-  "SOLUTION-ROOF TRUSS (SCG)": 400,
-  "ฝ้า - SMB (<=6mm)": 57,
-  "โครงคร่าว - ยิปซั่ม (ตราช้าง)": 12,
-  "ฝ-ใน ยิปซั่ม": 48,
-  "ฝ-ใน โครงคร่าว": 12,
-  "กระเบื้องคอนกรีตปูพื้น - Floor": 316,
-  "รั้วสำเร็จรูป - FENCE (Landscape)": 7083,
-  "ประตูห้องน้ำ": 1,
-  "ครอบ CPAC MONIER": 30,
-  "ประตูภายนอก": 1171,
-  "ไม้พื้นไวนิล": 1171,
-  "ปูนมอร์ตาร์ เทปรับระดับ": 892,
-  "ปูนสกิมโค้ด (เสือ)": 4577,
-  "Paint (NIPPON)": 2244,
-  "DOOR CATEGORY": 1119,
-  "อุปกรณ์ประตู (UNIX)": 1352,
-  "สีทาภายใน (หน่วยถัง : 5 แกลลอน)": 1,
-  "สีรองพื้น (หน่วยถัง : 5 แกลลอน)": 1,
-  "กาวซิเมนต์ (SCG)": 3466,
-  "DRY TECH": 2962,
-  "POST-TENSIONED": 295,
-  "ROOF ACCESSORIES": 1318,
-  "WIRE MESH": 32000,
-  "เสาเข็ม-คาน (CPAC)": 1960,
-  "เหล็กเส้นก่อสร้าง": 25000,
-  "เหล็กรูปพรรณ SYS": 26400,
-  "แป (หลังคา)": 115,
-  "แผ่นพื้นสำเร็จรูป (CPAC)": 384,
-  "ผนัง - พื้น SMB (>6mm)": 108,
-  "ผนังอิฐมวลเบา (Q-CON)": 126,
-  "ฝ้า - ยิปซั่ม (ตราช้าง)": 41,
-  "ลวดผูกเหล็ก (TOPSTEEL)": 100,
-  "หลังคา PRESTIGE": 184,
-  "อุปกรณ์ประปา": 21500,
-  "ปูนปอร์ตแลนด์ (SCG)": 1881,
-  "หลังคา EXCELLA เกล็ดปลา": 125,
-  "Paint (BEGER)": 1370,
-  "หลังคา NEUSTILE": 391,
-  "ครอบ NEUSTILE": 74,
-  "ไม้ฝา": 187,
-  "ไม้ระแนง (SCG)": 155,
-  "ไม้พื้น Smartwood": 626,
-  "กระเบื้องโปร่งแสง (SFG)": 299,
-  "Solution-ระบบเก็บน้ำใต้ดิน": 20000,
-  "ระบบถังเก็บน้ำภายนอก": 20000,
-  "METAL SHEET (SCG)": 300,
-  "Solution-METAL SHEET (SCG)": 128,
-  "หลังคา PROLON": 65,
-  "SOLUTION : ROOF INSTALLATION": 800,
-  "Lintel (Q-Con)": 652,
-  "ปูน Admixed ตราแรด": 2841,
-  "WALL PANEL (Q-CON)": 415,
-  "แผ่นสะท้อนความร้อนหลังคา (SCG)": 44,
-  "ไม้เชิงชาย": 300,
-  "ไม้แบบ (Unix)": 919,
-  "ครอบ EXCELLA": 157,
-  "ครอบ PRESTIGE": 57,
-  "ไม้รั้ว (SCG)": 258,
-  "ไม้บัว": 290,
-  "ไม้มอบ": 241,
-  "ไม้ปิดกันนก": 121,
-  "ไม้บังตา": 201,
-  "ปูนมอร์ตาร์ อื่นๆ": 1389,
-  "บล็อกปูถนน": 60,
-  "ปูนก่อและฉาบ Q-CON": 250,
-  "WOOD ACCESSORIES": 567,
-  "White Cement (SCG)": 7657
-};
+// ตารางราคาต่อหน่วย (ไม่ฝังราคาในโค้ด ใช้เฉพาะข้อมูลจากไฟล์ราคาต่อหน่วยที่อัปโหลดเท่านั้น)
+let unitPrices = {};
 
 let displayMode = 'baht';
 let forecastDisplayMode = 'baht'; // หน่วยแสดงผลแยกเฉพาะส่วน Sales Forecast ('baht' | 'unit')
+let forecastOnlyDealerActual = false; // ตัวกรองเฉพาะสินค้าที่เคยเกิด Actual ในไฟล์ Dealer
+let dealerActualProductGroupsSet = new Set(); // รายชื่อกลุ่มสินค้าที่เคยมี Actual ในไฟล์ Dealer
+let manualAddedForecastProducts = new Set(); // สินค้าที่ไม่มี Actual แต่ผู้ใช้กดเพิ่มเอง
+let manualRemovedForecastProducts = new Set(); // สินค้าที่มี Actual แต่ผู้ใช้กดเอาออกเอง
+
 let salesRawRows = null;
 let dealerRawRows = null;
 let validProjectIdsSet = new Set();

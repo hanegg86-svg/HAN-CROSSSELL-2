@@ -6,7 +6,7 @@
  * รองรับตัวเลือก AI (gemini-3.5-flash-lite) สรุปรวม Site Report รายโครงการให้เหลือ 1 หน้าสไลด์เฉพาะตอนสร้างไฟล์ PPTX
  * แสดงวันที่เข้าตรวจครบทุกวันจากรายงานย่อยทั้งหมดในโครงการ (ไม่ย่อเป็นช่วงวันที่)
  * เพิ่มสไลด์ตาราง Matrix คาดการณ์ยอดขาย (โครงการ x กลุ่มสินค้า) โดยตัดรายการสินค้าและโครงการที่ไม่มี Forecast ออกอัตโนมัติ
- * ดึงตัวกรองช่วงเดือน กลุ่มสินค้า และหน่วยแสดงผลแยกเฉพาะส่วน Sales Forecast มาสร้างกราฟและตารางอย่างแม่นยำ
+ * ดึงตัวกรองช่วงเดือน กลุ่มสินค้า (รวมตัวกรองเฉพาะสินค้าที่เคยเกิด Actual และสินค้าที่กดเพิ่มเอง) และหน่วยแสดงผลแยกเฉพาะส่วน Sales Forecast มาสร้างกราฟและตารางอย่างแม่นยำ
  */
 
 let pptxAvailableProjectsList = []; // [{ key, id, name }]
@@ -265,6 +265,16 @@ function isProjectSelectedForPptx(projId, projName, projKey = '') {
     }
   }
   return false;
+}
+
+/**
+ * ตรวจสอบว่ากลุ่มสินค้าที่ระบุอยู่ในรายการที่เลือกของส่วน Sales Forecast หรือไม่
+ */
+function isProductSelectedForForecastPptx(productGroup) {
+  if (!selectedForecastProducts || !Array.isArray(allForecastProductGroups) || allForecastProductGroups.length === 0) {
+    return true;
+  }
+  return selectedForecastProducts.has(productGroup);
 }
 
 /**
@@ -542,8 +552,20 @@ function getSelectElementOptionText(selectId) {
   return String(el.options[el.selectedIndex].text || '').trim();
 }
 
+function getForecastActualFilterNote() {
+  if (typeof forecastOnlyDealerActual !== 'undefined' && forecastOnlyDealerActual) {
+    const manualAddedCount = (typeof manualAddedForecastProducts !== 'undefined' && manualAddedForecastProducts)
+      ? Array.from(manualAddedForecastProducts).filter(p => selectedForecastProducts && selectedForecastProducts.has(p)).length
+      : 0;
+    return manualAddedCount > 0
+      ? ` | กรองสินค้าที่มี Actual (Dealer) + เพิ่มเอง ${manualAddedCount} รายการ`
+      : ' | กรองเฉพาะสินค้าที่มี Actual (Dealer)';
+  }
+  return '';
+}
+
 /**
- * รวบรวมโครงสร้างกราฟวิเคราะห์ทั้ง 5 กราฟที่มีข้อมูลในระบบ พร้อมระบุช่วงเวลาและหน่วยที่ Filter อยู่บนหัวสไลด์
+ * รวบรวมโครงสร้างกราฟวิเคราะห์ทั้ง 5 กราฟที่มีข้อมูลในระบบ พร้อมระบุช่วงเวลาและตัวกรองอยู่บนหัวสไลด์
  */
 function collectAvailableChartConfigs() {
   const dealerUnitText = getUnitSuffix();
@@ -565,6 +587,7 @@ function collectAvailableChartConfigs() {
 
   const fSingleLabel = getSelectElementOptionText('forecastProjectSingleMonthSelect');
   const forecastSingleSuffix = fSingleLabel ? ` | เดือนที่ดู: ${fSingleLabel}` : '';
+  const actualFilterNote = getForecastActualFilterNote();
 
   const candidates = [
     {
@@ -592,14 +615,14 @@ function collectAvailableChartConfigs() {
       id: 'forecastProductChart',
       available: hasParsedRows && hasForecastMonths,
       title: `คาดการณ์ยอดขายล่วงหน้า รายกลุ่มสินค้า (${forecastUnitText})`,
-      subtitle: `แผนโอกาสขายล่วงหน้า (Sales Forecast - Ropp) แยกตามกลุ่มสินค้า${forecastRangeSuffix}`,
+      subtitle: `แผนโอกาสขายล่วงหน้า (Sales Forecast - Ropp) แยกตามกลุ่มสินค้า${forecastRangeSuffix}${actualFilterNote}`,
       category: 'Sales Forecast'
     },
     {
       id: 'forecastProjectChart',
       available: hasParsedRows && hasForecastMonths,
       title: `คาดการณ์ยอดขายล่วงหน้า รายโครงการ (${forecastUnitText})`,
-      subtitle: `Stacked Bar แสดงสัดส่วนกลุ่มสินค้าที่คาดการณ์ล่วงหน้าในแต่ละโครงการ${forecastSingleSuffix}`,
+      subtitle: `Stacked Bar แสดงสัดส่วนกลุ่มสินค้าที่คาดการณ์ล่วงหน้าในแต่ละโครงการ${forecastSingleSuffix}${actualFilterNote}`,
       category: 'Sales Forecast'
     }
   ];
@@ -608,7 +631,7 @@ function collectAvailableChartConfigs() {
 }
 
 /**
- * คำนวณข้อมูลตาราง Matrix คาดการณ์ยอดขาย (โครงการ x กลุ่มสินค้า) ตามโครงการและหน่วยของส่วน Sales Forecast ที่เลือก
+ * คำนวณข้อมูลตาราง Matrix คาดการณ์ยอดขาย (โครงการ x กลุ่มสินค้า) ตามโครงการ กลุ่มสินค้า และหน่วยของส่วน Sales Forecast ที่เลือก
  * และตัดรายการสินค้าและโครงการที่ไม่มี Forecast (ยอด <= 0) ออกทั้งหมด
  */
 function computeForecastMatrixForPptx() {
@@ -636,9 +659,7 @@ function computeForecastMatrixForPptx() {
     if (!isProjectSelectedForPptx(projectCode, projectName, projectKey)) return;
 
     const productGroup = (row[4] || 'อื่นๆ').trim();
-    if (selectedForecastProducts && selectedForecastProducts.size > 0 && !selectedForecastProducts.has(productGroup)) {
-      return;
-    }
+    if (!isProductSelectedForForecastPptx(productGroup)) return;
 
     const unitPrice = getUnitPrice(productGroup);
     const fUnit = parseNum(row[targetMonth.roppCol]);
@@ -696,6 +717,7 @@ function addForecastMatrixSlides(pptx) {
   if (!matrixData) return;
 
   const unitText = typeof getForecastUnitSuffix === 'function' ? getForecastUnitSuffix() : getUnitSuffix();
+  const actualFilterNote = getForecastActualFilterNote();
   const MAX_COLS_PER_SLIDE = 6;
   const MAX_ROWS_PER_SLIDE = 10;
 
@@ -728,7 +750,7 @@ function addForecastMatrixSlides(pptx) {
         'FORECAST MATRIX',
         '4F46E5',
         `ตารางคาดการณ์ยอดขายล่วงหน้า — เดือน ${matrixData.monthName} (${unitText})${pageSuffix}`,
-        `โครงการ × กลุ่มสินค้าที่มี Forecast (ตัดสินค้าที่ไม่มี Forecast ออกแล้ว ${matrixData.products.length} กลุ่มสินค้า, ${matrixData.projects.length} โครงการ)${colRangeNote}`
+        `โครงการ × กลุ่มสินค้าที่มี Forecast (${matrixData.products.length} กลุ่มสินค้า, ${matrixData.projects.length} โครงการ)${colRangeNote}${actualFilterNote}`
       );
 
       // คำนวณความกว้างคอลัมน์ให้พอดีกับพื้นที่ 12.43 นิ้ว
@@ -826,7 +848,7 @@ function addForecastMatrixSlides(pptx) {
 }
 
 /**
- * สร้างภาพ PNG พื้นหลังสีขาวจาก Chart.js บน Off-screen Canvas โดยกรองเฉพาะโครงการ ช่วงเวลา และหน่วยแสดงผลที่เลือก
+ * สร้างภาพ PNG พื้นหลังสีขาวจาก Chart.js บน Off-screen Canvas โดยกรองเฉพาะโครงการ ช่วงเวลา กลุ่มสินค้า และหน่วยแสดงผลที่เลือก
  */
 function renderOffscreenChartPngForSelectedProjects(chartId) {
   if (!parsedDataRowsGlobal || parsedDataRowsGlobal.length === 0) return null;
@@ -993,7 +1015,7 @@ function renderOffscreenChartPngForSelectedProjects(chartId) {
       if (!isProjectSelectedForPptx(projectCode, projectName, projectKey)) return;
 
       const productGroup = (row[4] || 'อื่นๆ').trim();
-      if (selectedForecastProducts.size > 0 && !selectedForecastProducts.has(productGroup)) return;
+      if (!isProductSelectedForForecastPptx(productGroup)) return;
 
       const unitPrice = getUnitPrice(productGroup);
       if (!forecastProducts[productGroup]) {
@@ -1050,7 +1072,7 @@ function renderOffscreenChartPngForSelectedProjects(chartId) {
       if (!isProjectSelectedForPptx(projectCode, projectName, projectKey)) return;
 
       const productGroup = (row[4] || 'อื่นๆ').trim();
-      if (selectedForecastProducts.size > 0 && !selectedForecastProducts.has(productGroup)) return;
+      if (!isProductSelectedForForecastPptx(productGroup)) return;
 
       const unitPrice = getUnitPrice(productGroup);
       const fUnit = parseNum(row[targetMonth.roppCol]);

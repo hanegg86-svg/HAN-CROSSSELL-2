@@ -8,7 +8,8 @@
  * 4. เชื่อมตัวกรองรายงาน Weekly แบบเลือกได้ 1 เดือนหรือหลายเดือน (Multi-Select Month Filter) เข้ากับปุ่มใน Section 1 และ Modal Export
  * 5. เพิ่มระบบ "ตารางพักรายการเตรียม Export (Export Staging Table)" และระบบ AI สรุป 2 โหมด (สรุปรวมเป็น 1 แถว / สรุปแยกตามรายโครงการ) ด้วย gemini-3.5-flash-lite
  * 6. รองรับเมนูพับเก็บได้บนหน้าจอมือถือ (toggleMobileHeaderTools)
- * 7. รองรับตัวกรองย่อยสำหรับสลับหน่วยแสดงผล (บาท / หน่วยสินค้า) แยกเฉพาะส่วน Sales Forecast
+ * 7. รองรับตัวกรองย่อยสำหรับสลับหน่วยแสดงผล (บาท / หน่วยสินค้า) และตัวกรองเฉพาะสินค้าที่เคยเกิด Actual (Dealer) ในส่วน Sales Forecast
+ * 8. ใช้ตารางราคาต่อหน่วยเฉพาะจากไฟล์ราคา CSV ที่อัปโหลดเท่านั้น (ไม่ใช้ราคาฝังในโค้ด)
  */
 
 function toggleMobileHeaderTools() {
@@ -278,7 +279,9 @@ function processSalesCSV(rows) {
   crossSellProjectsList = projectList.filter(p => p.boughtProducts.length > 1);
 
   allForecastProductGroups = Array.from(prodGroupSet).sort((a, b) => a.localeCompare(b, 'th'));
-  if (selectedForecastProducts.size === 0) selectedForecastProducts = new Set(allForecastProductGroups);
+  if (!forecastOnlyDealerActual && selectedForecastProducts.size === 0) {
+    selectedForecastProducts = new Set(allForecastProductGroups);
+  }
   if (selectedDealerCompProducts.size === 0) selectedDealerCompProducts = new Set(allForecastProductGroups);
 
   allProjectListGlobal = Array.from(projectsMapUnique.values()).sort((a, b) => a.name.localeCompare(b.name, 'th'));
@@ -345,7 +348,7 @@ function processSalesCSV(rows) {
 
   const banner = document.getElementById('missingPriceBanner');
   const missingList = document.getElementById('missingList');
-  if (missingPriceProducts.size > 0 && displayMode === 'baht') {
+  if (missingPriceProducts.size > 0 && (displayMode === 'baht' || forecastDisplayMode === 'baht')) {
     document.getElementById('missingCount').textContent = missingPriceProducts.size;
     missingList.innerHTML = Array.from(missingPriceProducts).map(item => `
       <span class="bg-amber-100 text-amber-900 border border-amber-300 text-[11px] font-medium px-2 py-0.5 rounded-md">
@@ -390,6 +393,9 @@ function processPriceCSV(rows) {
   if (prodCol === -1) prodCol = 0;
   if (priceCol === -1) priceCol = header.length - 1;
 
+  // ล้างราคาเดิมออกทั้งหมด ใช้เฉพาะราคาจากไฟล์ CSV ที่อัปโหลดเท่านั้น
+  unitPrices = {};
+
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
     const prod = (row[prodCol] || '').trim();
@@ -430,6 +436,14 @@ function applyMasterProjectFilter() {
   }
   renderDealerTable();
   updateDealerComparisonCharts();
+
+  if (typeof refreshDealerActualForecastSelection === 'function') {
+    refreshDealerActualForecastSelection(false);
+  }
+  if (typeof renderForecastProductCheckboxes === 'function') {
+    renderForecastProductCheckboxes();
+  }
+
   updateForecastProductChart();
   updateForecastProjectChart();
   updateForecastMatrix();
@@ -2454,7 +2468,7 @@ async function openBackupJsonModal() {
       'backupStatPrice',
       hasPrice,
       `มีข้อมูล (${hasPrice ? priceRec.data.length.toLocaleString() : 0} แถว)`,
-      'ใช้ค่าเริ่มต้นระบบ',
+      'ยังไม่อัปโหลดไฟล์ราคา',
       hasPrice
     );
     setCatState(
@@ -2710,6 +2724,7 @@ async function handleRestoreJsonFile(file) {
 
     await syncSiteVisitsWithMergeRules();
 
+    unitPrices = {};
     const cachedPrice = await dbGet('cached_files', 'price_data');
     if (cachedPrice && cachedPrice.data) {
       processPriceCSV(cachedPrice.data);
@@ -2844,6 +2859,7 @@ async function initializeSalesEngineApp() {
       updateActiveMergeBadge();
     }
 
+    unitPrices = {};
     const cachedPrice = await dbGet('cached_files', 'price_data');
     if (cachedPrice && cachedPrice.data) {
       processPriceCSV(cachedPrice.data);
@@ -2895,6 +2911,7 @@ async function initializeSalesEngineApp() {
   const dealerFileInput = document.getElementById('dealerFileInput');
   const unitDisplayModeSelect = document.getElementById('unitDisplayModeSelect');
   const forecastUnitDisplayModeSelect = document.getElementById('forecastUnitDisplayModeSelect');
+  const forecastOnlyDealerActualCheckbox = document.getElementById('forecastOnlyDealerActualCheckbox');
 
   if (dropZone && salesFileInput) {
     dropZone.addEventListener('click', () => salesFileInput.click());
@@ -2965,6 +2982,16 @@ async function initializeSalesEngineApp() {
       updateForecastProductChart();
       updateForecastProjectChart();
       updateForecastMatrix();
+    });
+  }
+
+  // Filter ย่อยสำหรับกรองเฉพาะสินค้าที่เคยเกิด Actual ในไฟล์ Dealer (และกดเพิ่มสินค้าเองได้)
+  if (forecastOnlyDealerActualCheckbox) {
+    forecastOnlyDealerActualCheckbox.checked = Boolean(forecastOnlyDealerActual);
+    forecastOnlyDealerActualCheckbox.addEventListener('change', (e) => {
+      if (typeof handleForecastOnlyDealerActualChange === 'function') {
+        handleForecastOnlyDealerActualChange(e.target.checked);
+      }
     });
   }
 

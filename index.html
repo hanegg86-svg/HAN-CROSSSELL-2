@@ -144,7 +144,7 @@
         <span class="text-xl mr-3">⚠️</span>
         <div class="flex-1">
           <h3 class="text-sm font-bold text-amber-800">พบสินค้าที่ยังไม่มีข้อมูลในตารางราคาต่อหน่วย (<span id="missingCount">0</span> รายการ)</h3>
-          <p class="text-xs text-amber-700 mt-1">หากเลือกแสดงเป็นบาท สินค้าเหล่านี้จะถูกคำนวณเป็น 0 บาท โปรดอัปโหลดไฟล์ราคาต่อหน่วยเพิ่มเติม:</p>
+          <p class="text-xs text-amber-700 mt-1">ระบบใช้ราคาเฉพาะจากไฟล์ราคาต่อหน่วยที่อัปโหลดเท่านั้น หากเลือกแสดงเป็นบาท สินค้าเหล่านี้จะถูกคำนวณเป็น 0 บาท โปรดอัปโหลดไฟล์ราคาต่อหน่วย:</p>
           <div id="missingList" class="flex flex-wrap gap-1.5 mt-2"></div>
         </div>
       </div>
@@ -462,6 +462,13 @@
             </p>
           </div>
           <div class="flex flex-wrap items-center gap-2">
+            <!-- Filter ย่อย: เฉพาะสินค้าที่เคยเกิด Actual ในไฟล์ Dealer (สามารถกดเพิ่มสินค้าอื่นเองต่อได้) -->
+            <label class="inline-flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100/80 text-emerald-900 border border-emerald-200 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm cursor-pointer transition-all select-none">
+              <input type="checkbox" id="forecastOnlyDealerActualCheckbox" class="rounded text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5 cursor-pointer">
+              <span>✅ เฉพาะสินค้าที่เคยเกิด Actual (Dealer)</span>
+              <span id="forecastDealerActualCountBadge" class="bg-emerald-600 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full">0</span>
+            </label>
+
             <!-- Filter ย่อย: หน่วยแสดงผลเฉพาะส่วน Sales Forecast -->
             <div class="inline-flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm">
               <span class="text-indigo-900">📊 หน่วย Forecast:</span>
@@ -478,15 +485,18 @@
                 <span id="forecastProductDropdownLabel">เลือกกลุ่มสินค้าทั้งหมด</span>
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
               </button>
-              <div id="forecastProductDropdownMenu" class="hidden absolute right-0 mt-2 w-72 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-3 space-y-2">
+              <div id="forecastProductDropdownMenu" class="hidden absolute right-0 mt-2 w-80 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-3 space-y-2">
                 <div class="flex justify-between items-center pb-2 border-b border-slate-100">
-                  <span class="text-xs font-bold text-slate-700">กรองกลุ่มสินค้า</span>
+                  <span class="text-xs font-bold text-slate-700">กรอง / เพิ่มกลุ่มสินค้าเอง</span>
                   <div class="flex gap-2">
                     <button type="button" onclick="selectAllForecastProducts(true)" class="text-[11px] text-indigo-600 hover:underline">เลือกทั้งหมด</button>
                     <span class="text-slate-300">|</span>
                     <button type="button" onclick="selectAllForecastProducts(false)" class="text-[11px] text-slate-500 hover:underline">ล้างค่า</button>
                   </div>
                 </div>
+                <p id="forecastDropdownHintText" class="text-[10px] text-slate-500 bg-slate-50 px-2 py-1 rounded border border-slate-100">
+                  สามารถติ๊กเพิ่มหรือลดกลุ่มสินค้าที่ต้องการแสดงในกราฟและตารางได้อิสระ
+                </p>
                 <div id="forecastProductCheckboxList" class="max-h-56 overflow-y-auto custom-scrollbar space-y-1.5 text-xs text-slate-700"></div>
               </div>
             </div>
