@@ -10,6 +10,7 @@
  * 6. รองรับเมนูพับเก็บได้บนหน้าจอมือถือ (toggleMobileHeaderTools)
  * 7. รองรับตัวกรองย่อยสำหรับสลับหน่วยแสดงผล (บาท / หน่วยสินค้า) และตัวกรองเฉพาะสินค้าที่เคยเกิด Actual (Dealer) ในส่วน Sales Forecast
  * 8. ใช้ตารางราคาต่อหน่วยเฉพาะจากไฟล์ราคา CSV ที่อัปโหลดเท่านั้น (ไม่ใช้ราคาฝังในโค้ด)
+ * 9. ซิงค์รายการสินค้าจาก MATERIALNAME (ช่อง O) ของไฟล์ Dealer เข้ากับตัวกรองกราฟเปรียบเทียบเสมอ
  */
 
 function toggleMobileHeaderTools() {
@@ -282,7 +283,13 @@ function processSalesCSV(rows) {
   if (!forecastOnlyDealerActual && selectedForecastProducts.size === 0) {
     selectedForecastProducts = new Set(allForecastProductGroups);
   }
-  if (selectedDealerCompProducts.size === 0) selectedDealerCompProducts = new Set(allForecastProductGroups);
+
+  // ซิงค์กลุ่มสินค้าของส่วน Dealer (รวม MATERIALNAME ที่ไม่มี App/Prd Group)
+  if (typeof syncDealerCompProductGroups === 'function') {
+    syncDealerCompProductGroups();
+  } else if (selectedDealerCompProducts.size === 0) {
+    selectedDealerCompProducts = new Set(allForecastProductGroups);
+  }
 
   allProjectListGlobal = Array.from(projectsMapUnique.values()).sort((a, b) => a.name.localeCompare(b.name, 'th'));
 
@@ -2725,6 +2732,9 @@ async function handleRestoreJsonFile(file) {
     await syncSiteVisitsWithMergeRules();
 
     unitPrices = {};
+    dealerOnlyActualMaterialNamesSet.clear();
+    allDealerCompProductGroups = [];
+
     const cachedPrice = await dbGet('cached_files', 'price_data');
     if (cachedPrice && cachedPrice.data) {
       processPriceCSV(cachedPrice.data);

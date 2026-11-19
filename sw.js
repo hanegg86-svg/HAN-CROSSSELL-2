@@ -1,10 +1,10 @@
 /**
  * Service Worker - sw.js
  * จัดการ Caching ด้วยกลยุทธ์ Network-First สำหรับโหมด Offline PWA
- * อัปเดตเวอร์ชันแคชเป็น v19 และปรับรายการไฟล์สคริปต์เป็น ?v=16 ให้ตรงกับ index.html
+ * อัปเดตเวอร์ชันแคชเป็น v20 และปรับรายการไฟล์สคริปต์เป็น ?v=16 ให้ตรงกับ index.html
  */
 
-const CACHE_NAME = 'sales-analytics-v19';
+const CACHE_NAME = 'sales-analytics-v20';
 
 // รายการไฟล์ทั้งหมดในโปรเจกต์ที่ต้องแคชไว้ใช้งานออฟไลน์
 const STATIC_ASSETS = [

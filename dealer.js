@@ -7,7 +7,46 @@
  * 3. คงค่าช่วงเวลาที่เลือกไว้ (ไม่ Reset) เมื่อสลับหน่วย และอัปเดตสรุป KPI
  * 4. รองรับการรวมยอด Dealer Actual เข้าโครงการหลัก (Main Project) ตามกฎการรวมโครงการ
  * 5. อัปเดตรายชื่อกลุ่มสินค้าที่เคยเกิด Actual เพื่อเชื่อมกับตัวกรองในส่วน Sales Forecast อัตโนมัติ
+ * 6. หากแถวในไฟล์ Dealer ไม่มีชื่อในช่อง APP_NAME (ช่อง I) และ PRD_GROUP_NAME (ช่อง K) ให้ใช้ชื่อจากช่อง MATERIALNAME (ช่อง O) และแสดงเฉพาะยอด Actual ในกราฟโดยไม่มี Opp
  */
+
+function isValidDealerGroupLabel(val) {
+  if (val === undefined || val === null) return false;
+  const clean = String(val).trim();
+  if (!clean || clean === '-' || clean.toLowerCase() === 'null' || clean.toLowerCase() === 'undefined') {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * รวมรายชื่อกลุ่มสินค้าสำหรับตัวกรองกราฟ Dealer Comparison
+ * ประกอบด้วยกลุ่มสินค้าจากไฟล์ยอดขายหลัก (Col E) + สินค้าจาก MATERIALNAME (ช่อง O) ที่ไม่มี App/Prd Group
+ */
+function syncDealerCompProductGroups() {
+  const combinedSet = new Set(Array.isArray(allForecastProductGroups) ? allForecastProductGroups : []);
+
+  if (Array.isArray(matchedDealerList)) {
+    matchedDealerList.forEach(item => {
+      if (item && isValidDealerGroupLabel(item.productGroup)) {
+        combinedSet.add(item.productGroup);
+      }
+    });
+  }
+
+  allDealerCompProductGroups = Array.from(combinedSet).sort((a, b) => a.localeCompare(b, 'th'));
+
+  if (selectedDealerCompProducts.size === 0) {
+    selectedDealerCompProducts = new Set(allDealerCompProductGroups);
+  } else {
+    // เพิ่มรายการสินค้าจาก MATERIALNAME (เฉพาะ Actual) เข้าไปในรายการที่เลือกอัตโนมัติเพื่อให้แสดงในกราฟทันที
+    dealerOnlyActualMaterialNamesSet.forEach(matName => {
+      if (allDealerCompProductGroups.includes(matName)) {
+        selectedDealerCompProducts.add(matName);
+      }
+    });
+  }
+}
 
 function handleDealerFile(file) {
   if (!file) return;
@@ -27,6 +66,7 @@ function handleDealerFile(file) {
 function processDealerCSV(rows) {
   if (!rows || rows.length === 0) return;
   matchedDealerList = [];
+  dealerOnlyActualMaterialNamesSet.clear();
   const yearOptionsSet = new Set();
   const monthOptionsSet = new Set();
 
@@ -45,7 +85,26 @@ function processDealerCSV(rows) {
     const projectSiteId = mergedTarget ? (mergedTarget.id || rawProjectSiteId) : rawProjectSiteId;
     const projectName = mergedTarget ? (mergedTarget.name || rawProjectName) : rawProjectName;
 
-    const prodGroupName = (r['PRD_GROUP_NAME'] || r['prd_group_name'] || r['MATERIALNAME'] || '-').trim();
+    // ตรวจสอบชื่อกลุ่มสินค้าตามลำดับ: PRD_GROUP_NAME (ช่อง K) -> APP_NAME (ช่อง I) -> MATERIALNAME (ช่อง O)
+    const rawPrdGroup = r['PRD_GROUP_NAME'] !== undefined ? r['PRD_GROUP_NAME'] : r['prd_group_name'];
+    const rawAppName = r['APP_NAME'] !== undefined ? r['APP_NAME'] : r['app_name'];
+    const rawMaterialName = r['MATERIALNAME'] !== undefined
+      ? r['MATERIALNAME']
+      : (r['materialname'] !== undefined ? r['materialname'] : r['Material_Name']);
+
+    let prodGroupName = '-';
+    let isOnlyActualMaterial = false;
+
+    if (isValidDealerGroupLabel(rawPrdGroup)) {
+      prodGroupName = String(rawPrdGroup).trim();
+    } else if (isValidDealerGroupLabel(rawAppName)) {
+      prodGroupName = String(rawAppName).trim();
+    } else if (isValidDealerGroupLabel(rawMaterialName)) {
+      prodGroupName = String(rawMaterialName).trim();
+      isOnlyActualMaterial = true;
+      dealerOnlyActualMaterialNamesSet.add(prodGroupName);
+    }
+
     const monthVal = String(r['Months'] || r['months'] || '-').trim();
     const yearVal = String(r['Years'] || r['years'] || '-').trim();
 
@@ -80,6 +139,7 @@ function processDealerCSV(rows) {
       origProjectId: rawProjectSiteId,
       origProjectName: rawProjectName,
       productGroup: prodGroupName,
+      isOnlyActualMaterial: isOnlyActualMaterial,
       period: periodStr,
       month: monthVal,
       year: yearVal,
@@ -95,6 +155,9 @@ function processDealerCSV(rows) {
       monthOptionsSet.add(monthVal);
     }
   });
+
+  // ซิงค์รายการกลุ่มสินค้า (รวม MATERIALNAME ที่ไม่มี App/Prd Group)
+  syncDealerCompProductGroups();
 
   const dealerYearSelect = document.getElementById('dealerYearFilter');
   if (dealerYearSelect) {
@@ -129,7 +192,9 @@ function processDealerCSV(rows) {
 
   const elMatchSummary = document.getElementById('dealerMatchSummary');
   if (elMatchSummary) {
-    elMatchSummary.textContent = `จับคู่ตรงกับไฟล์ยอดขายได้ ${matchedDealerList.length.toLocaleString()} แถว (ตัดรายการที่ไม่ตรงออกเรียบร้อยแล้ว)`;
+    const matFallbackCount = dealerOnlyActualMaterialNamesSet.size;
+    const matNote = matFallbackCount > 0 ? ` | ใช้ชื่อ Material Name (เฉพาะ Actual) ${matFallbackCount} รายการ` : '';
+    elMatchSummary.textContent = `จับคู่ตรงกับไฟล์ยอดขายได้ ${matchedDealerList.length.toLocaleString()} แถว${matNote}`;
   }
   renderDealerTable();
   initDealerComparisonControls();
@@ -196,21 +261,29 @@ function renderDealerTable() {
     return;
   }
 
-  tbody.innerHTML = filtered.map(item => `
-    <tr class="hover:bg-emerald-50/40 transition-colors">
-      <td class="py-2.5 px-3">
-        <div class="font-semibold text-slate-800">${escapeHtml(item.dealerName)}</div>
-        <div class="text-[10px] text-slate-400 font-mono">${escapeHtml(item.dealerId)}</div>
-      </td>
-      <td class="py-2.5 px-3 font-mono font-bold text-indigo-700">${escapeHtml(item.projectId)}</td>
-      <td class="py-2.5 px-3 font-medium text-slate-800 max-w-xs truncate" title="${escapeHtml(item.projectName)}">${escapeHtml(item.projectName)}</td>
-      <td class="py-2.5 px-3 text-slate-600">${escapeHtml(item.productGroup)}</td>
-      <td class="py-2.5 px-2 text-center font-mono text-slate-500">${escapeHtml(item.period)}</td>
-      <td class="py-2.5 px-3 text-right font-mono text-slate-700 font-medium">${formatNumber(item.actual)}</td>
-      <td class="py-2.5 px-3 text-center font-mono text-slate-500 bg-slate-50/60 rounded">${escapeHtml(item.runit)}</td>
-      <td class="py-2.5 px-3 text-right font-mono font-bold text-emerald-600">${formatNumber(item.netAmount)}</td>
-    </tr>
-  `).join('');
+  tbody.innerHTML = filtered.map(item => {
+    const onlyActBadge = (item.isOnlyActualMaterial || dealerOnlyActualMaterialNamesSet.has(item.productGroup))
+      ? `<span class="ml-1 inline-block text-[10px] px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 font-semibold" title="ไม่มีชื่อ App Name / Prd Group ใช้ชื่อจาก MATERIALNAME (แสดงเฉพาะ Actual)">Material (Actual เท่านั้น)</span>`
+      : '';
+
+    return `
+      <tr class="hover:bg-emerald-50/40 transition-colors">
+        <td class="py-2.5 px-3">
+          <div class="font-semibold text-slate-800">${escapeHtml(item.dealerName)}</div>
+          <div class="text-[10px] text-slate-400 font-mono">${escapeHtml(item.dealerId)}</div>
+        </td>
+        <td class="py-2.5 px-3 font-mono font-bold text-indigo-700">${escapeHtml(item.projectId)}</td>
+        <td class="py-2.5 px-3 font-medium text-slate-800 max-w-xs truncate" title="${escapeHtml(item.projectName)}">${escapeHtml(item.projectName)}</td>
+        <td class="py-2.5 px-3 text-slate-600">
+          <span>${escapeHtml(item.productGroup)}</span>${onlyActBadge}
+        </td>
+        <td class="py-2.5 px-2 text-center font-mono text-slate-500">${escapeHtml(item.period)}</td>
+        <td class="py-2.5 px-3 text-right font-mono text-slate-700 font-medium">${formatNumber(item.actual)}</td>
+        <td class="py-2.5 px-3 text-center font-mono text-slate-500 bg-slate-50/60 rounded">${escapeHtml(item.runit)}</td>
+        <td class="py-2.5 px-3 text-right font-mono font-bold text-emerald-600">${formatNumber(item.netAmount)}</td>
+      </tr>
+    `;
+  }).join('');
 }
 
 function exportDealerToExcel() {
@@ -246,7 +319,8 @@ function exportDealerToExcel() {
     "Dealer Name": item.dealerName,
     "BP_PROJECT_SITE (ตรงกับไฟล์แรก)": item.projectId,
     "ชื่อโครงการ": item.projectName,
-    "กลุ่มสินค้า": item.productGroup,
+    "กลุ่มสินค้า / Material Name": item.productGroup,
+    "ประเภทข้อมูล": (item.isOnlyActualMaterial || dealerOnlyActualMaterialNamesSet.has(item.productGroup)) ? 'Material Name (เฉพาะ Actual)' : 'กลุ่มสินค้าปกติ',
     "งวด (เดือน/ปี)": item.period,
     "ปริมาณขายจริง (Actual)": item.actual,
     "หน่วย (Report_Unit)": item.runit,
@@ -256,9 +330,7 @@ function exportDealerToExcel() {
 }
 
 function initDealerComparisonControls() {
-  if (selectedDealerCompProducts.size === 0) {
-    selectedDealerCompProducts = new Set(allForecastProductGroups);
-  }
+  syncDealerCompProductGroups();
 
   const sMonth = document.getElementById('dealerCompStartMonthSelect');
   const eMonth = document.getElementById('dealerCompEndMonthSelect');
@@ -308,18 +380,28 @@ function handleDealerCompMonthRangeChange(e) {
 function renderDealerCompProductCheckboxes() {
   const elList = document.getElementById('dealerCompProductCheckboxList');
   if (!elList) return;
-  if (!allForecastProductGroups || allForecastProductGroups.length === 0) {
+  const groupList = (Array.isArray(allDealerCompProductGroups) && allDealerCompProductGroups.length > 0)
+    ? allDealerCompProductGroups
+    : allForecastProductGroups;
+
+  if (!groupList || groupList.length === 0) {
     elList.innerHTML = `<div class="text-slate-400 py-1 text-center">ไม่พบกลุ่มสินค้า</div>`;
     return;
   }
-  elList.innerHTML = allForecastProductGroups.map(p => {
+  elList.innerHTML = groupList.map(p => {
     const isChecked = selectedDealerCompProducts.has(p);
+    const isOnlyActual = dealerOnlyActualMaterialNamesSet.has(p);
     const jsVal = escapeJsString(p);
+    const badgeHtml = isOnlyActual
+      ? `<span class="text-[10px] px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 font-semibold shrink-0" title="ใช้ชื่อจาก MATERIALNAME แสดงเฉพาะ Actual (ไม่มี Opp)">Actual เท่านั้น</span>`
+      : '';
+
     return `
       <label class="flex items-center gap-2 hover:bg-slate-50 p-1 rounded cursor-pointer transition-colors">
         <input type="checkbox" value="${escapeHtml(p)}" ${isChecked ? 'checked' : ''} onchange="toggleDealerCompProduct('${jsVal}')"
-               class="rounded text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5">
+               class="rounded text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5 shrink-0">
         <span class="truncate flex-1" title="${escapeHtml(p)}">${escapeHtml(p)}</span>
+        ${badgeHtml}
       </label>
     `;
   }).join('');
@@ -337,8 +419,12 @@ function toggleDealerCompProduct(prodName) {
 }
 
 function selectAllDealerCompProducts(shouldSelectAll) {
+  const groupList = (Array.isArray(allDealerCompProductGroups) && allDealerCompProductGroups.length > 0)
+    ? allDealerCompProductGroups
+    : allForecastProductGroups;
+
   if (shouldSelectAll) {
-    selectedDealerCompProducts = new Set(allForecastProductGroups);
+    selectedDealerCompProducts = new Set(groupList);
   } else {
     selectedDealerCompProducts.clear();
   }
@@ -349,8 +435,11 @@ function selectAllDealerCompProducts(shouldSelectAll) {
 function updateDealerCompProductDropdownLabel() {
   const label = document.getElementById('dealerCompProductDropdownLabel');
   if (!label) return;
+  const groupList = (Array.isArray(allDealerCompProductGroups) && allDealerCompProductGroups.length > 0)
+    ? allDealerCompProductGroups
+    : allForecastProductGroups;
   const count = selectedDealerCompProducts.size;
-  const total = allForecastProductGroups.length;
+  const total = groupList.length;
   if (count === total) {
     label.textContent = 'เลือกกลุ่มสินค้าทั้งหมด';
   } else if (count === 0) {
@@ -405,6 +494,9 @@ function updateDealerComparisonCharts() {
     const projectKey = projectCode || projectName;
     const productGroup = (row[4] || 'อื่นๆ').trim();
 
+    // สินค้าที่ใช้ชื่อจาก MATERIALNAME (ช่อง O) จะแสดงเฉพาะค่า Actual เท่านั้น ไม่คิด Opp
+    if (dealerOnlyActualMaterialNamesSet.has(productGroup)) return;
+
     if (selectedMasterProject !== 'all') {
       if (projectKey !== selectedMasterProject && projectCode !== selectedMasterProject && projectName !== selectedMasterProject) return;
     }
@@ -428,6 +520,7 @@ function updateDealerComparisonCharts() {
   });
 
   const projectDealerActMap = {};
+  const projectDealerNameMap = {};
   const productDealerActMap = {};
 
   matchedDealerList.forEach(item => {
@@ -446,6 +539,9 @@ function updateDealerComparisonCharts() {
 
     monthlyDealerActArr[matchedMIdx] += actVal;
     projectDealerActMap[projectKey] = (projectDealerActMap[projectKey] || 0) + actVal;
+    if (item.projectName && item.projectName !== '-') {
+      projectDealerNameMap[projectKey] = item.projectName;
+    }
     productDealerActMap[productGroup] = (productDealerActMap[productGroup] || 0) + actVal;
   });
 
@@ -495,11 +591,12 @@ function updateDealerComparisonCharts() {
   // กราฟ 2: Top โครงการ
   const allCompProjectKeys = new Set([...Object.keys(projectRoppMap), ...Object.keys(projectDealerActMap)]);
   const projectCompList = Array.from(allCompProjectKeys).map(key => {
-    const roppData = projectRoppMap[key] || { name: key, code: key, ropp: 0 };
+    const fallbackName = projectDealerNameMap[key] || key;
+    const roppData = projectRoppMap[key] || { name: fallbackName, code: key, ropp: 0 };
     const dealerAct = projectDealerActMap[key] || 0;
     return {
       key: key,
-      name: roppData.name || key,
+      name: roppData.name || fallbackName,
       code: roppData.code || key,
       ropp: roppData.ropp,
       dealerAct: dealerAct,
@@ -550,13 +647,15 @@ function updateDealerComparisonCharts() {
     });
   }
 
-  // กราฟ 3: Top กลุ่มสินค้า
+  // กราฟ 3: Top กลุ่มสินค้า (รวมสินค้าจาก MATERIALNAME ที่มีเฉพาะ Actual โดยให้ Ropp = 0)
   const allCompProductNames = new Set([...Object.keys(productRoppMap), ...Object.keys(productDealerActMap)]);
   const productCompList = Array.from(allCompProductNames).map(prod => {
-    const ropp = productRoppMap[prod] || 0;
+    const isOnlyActual = dealerOnlyActualMaterialNamesSet.has(prod);
+    const ropp = isOnlyActual ? 0 : (productRoppMap[prod] || 0);
     const dealerAct = productDealerActMap[prod] || 0;
     return {
       name: prod,
+      isOnlyActual: isOnlyActual,
       ropp: ropp,
       dealerAct: dealerAct,
       total: ropp + dealerAct
@@ -570,7 +669,7 @@ function updateDealerComparisonCharts() {
     chartDealerCompProductInstance = new Chart(ctxProdComp, {
       type: 'bar',
       data: {
-        labels: productCompList.map(p => p.name),
+        labels: productCompList.map(p => p.name.length > 26 ? p.name.slice(0, 26) + '...' : p.name),
         datasets: [
           {
             label: `โอกาส (Ropp - ${unitSuffix})`,
@@ -594,6 +693,10 @@ function updateDealerComparisonCharts() {
           legend: { position: 'top', labels: { boxWidth: 12, font: { family: 'Prompt' } } },
           tooltip: {
             callbacks: {
+              title: (items) => {
+                const item = productCompList[items[0].dataIndex];
+                return item.isOnlyActual ? `${item.name} [Material Name - เฉพาะ Actual]` : item.name;
+              },
               label: (context) => `${context.dataset.label}: ${formatNumber(context.raw)} ${unitSuffix}`
             }
           }
@@ -606,3 +709,5 @@ function updateDealerComparisonCharts() {
     });
   }
 }
+
+window.syncDealerCompProductGroups = syncDealerCompProductGroups;

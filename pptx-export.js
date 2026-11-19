@@ -7,6 +7,7 @@
  * แสดงวันที่เข้าตรวจครบทุกวันจากรายงานย่อยทั้งหมดในโครงการ (ไม่ย่อเป็นช่วงวันที่)
  * เพิ่มสไลด์ตาราง Matrix คาดการณ์ยอดขาย (โครงการ x กลุ่มสินค้า) โดยตัดรายการสินค้าและโครงการที่ไม่มี Forecast ออกอัตโนมัติ
  * ดึงตัวกรองช่วงเดือน กลุ่มสินค้า (รวมตัวกรองเฉพาะสินค้าที่เคยเกิด Actual และสินค้าที่กดเพิ่มเอง) และหน่วยแสดงผลแยกเฉพาะส่วน Sales Forecast มาสร้างกราฟและตารางอย่างแม่นยำ
+ * รองรับรายการสินค้าจาก MATERIALNAME (ช่อง O) ของไฟล์ Dealer ที่ไม่มี App Name / Prd Group โดยแสดงเฉพาะค่า Actual (ไม่มี Opp)
  */
 
 let pptxAvailableProjectsList = []; // [{ key, id, name }]
@@ -881,6 +882,9 @@ function renderOffscreenChartPngForSelectedProjects(chartId) {
       const projectKey = projectCode || projectName;
       const productGroup = (row[4] || 'อื่นๆ').trim();
 
+      // สินค้าที่ใช้ชื่อจาก MATERIALNAME (ช่อง O) จะแสดงเฉพาะค่า Actual เท่านั้น ไม่คิด Opp
+      if (typeof dealerOnlyActualMaterialNamesSet !== 'undefined' && dealerOnlyActualMaterialNamesSet.has(productGroup)) return;
+
       if (!isProjectSelectedForPptx(projectCode, projectName, projectKey)) return;
       if (selectedDealerCompProducts.size > 0 && !selectedDealerCompProducts.has(productGroup)) return;
 
@@ -902,6 +906,7 @@ function renderOffscreenChartPngForSelectedProjects(chartId) {
     });
 
     const projectDealerActMap = {};
+    const projectDealerNameMap = {};
     const productDealerActMap = {};
 
     (matchedDealerList || []).forEach(item => {
@@ -916,6 +921,9 @@ function renderOffscreenChartPngForSelectedProjects(chartId) {
       const actVal = displayMode === 'baht' ? item.netAmount : item.actual;
       monthlyDealerActArr[matchedMIdx] += actVal;
       projectDealerActMap[item.projectId] = (projectDealerActMap[item.projectId] || 0) + actVal;
+      if (item.projectName && item.projectName !== '-') {
+        projectDealerNameMap[item.projectId] = item.projectName;
+      }
       productDealerActMap[item.productGroup] = (productDealerActMap[item.productGroup] || 0) + actVal;
     });
 
@@ -942,9 +950,10 @@ function renderOffscreenChartPngForSelectedProjects(chartId) {
     } else if (chartId === 'dealerCompProjectChart') {
       const allKeys = new Set([...Object.keys(projectRoppMap), ...Object.keys(projectDealerActMap)]);
       const list = Array.from(allKeys).map(key => {
-        const roppData = projectRoppMap[key] || { name: key, code: key, ropp: 0 };
+        const fallbackName = projectDealerNameMap[key] || key;
+        const roppData = projectRoppMap[key] || { name: fallbackName, code: key, ropp: 0 };
         const dealerAct = projectDealerActMap[key] || 0;
-        return { name: roppData.name || key, ropp: roppData.ropp, dealerAct, total: roppData.ropp + dealerAct };
+        return { name: roppData.name || fallbackName, ropp: roppData.ropp, dealerAct, total: roppData.ropp + dealerAct };
       }).sort((a, b) => b.total - a.total).slice(0, 10);
 
       chartConfig = {
@@ -969,7 +978,8 @@ function renderOffscreenChartPngForSelectedProjects(chartId) {
     } else if (chartId === 'dealerCompProductChart') {
       const allProds = new Set([...Object.keys(productRoppMap), ...Object.keys(productDealerActMap)]);
       const list = Array.from(allProds).map(prod => {
-        const ropp = productRoppMap[prod] || 0;
+        const isOnlyActual = typeof dealerOnlyActualMaterialNamesSet !== 'undefined' && dealerOnlyActualMaterialNamesSet.has(prod);
+        const ropp = isOnlyActual ? 0 : (productRoppMap[prod] || 0);
         const dealerAct = productDealerActMap[prod] || 0;
         return { name: prod, ropp, dealerAct, total: ropp + dealerAct };
       }).sort((a, b) => b.total - a.total).slice(0, 10);
@@ -977,7 +987,7 @@ function renderOffscreenChartPngForSelectedProjects(chartId) {
       chartConfig = {
         type: 'bar',
         data: {
-          labels: list.map(p => p.name),
+          labels: list.map(p => p.name.length > 26 ? p.name.slice(0, 26) + '...' : p.name),
           datasets: [
             { label: `โอกาส (Ropp - ${unitSuffix})`, data: list.map(p => p.ropp), backgroundColor: '#60a5fa', borderRadius: 4 },
             { label: `ยอดขายจริง Dealer (Actual - ${unitSuffix})`, data: list.map(p => p.dealerAct), backgroundColor: '#059669', borderRadius: 4 }

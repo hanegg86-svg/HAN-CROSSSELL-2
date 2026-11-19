@@ -31,6 +31,8 @@ let allMonthHeadersGlobal = [];
 let availableForecastMonths = [];
 let allProjectListGlobal = [];
 let allForecastProductGroups = [];
+let allDealerCompProductGroups = []; // รวมกลุ่มสินค้าทั้งหมดสำหรับกราฟ Dealer (Col E + Material Name ที่ไม่มี App/Prd Group)
+let dealerOnlyActualMaterialNamesSet = new Set(); // รายชื่อสินค้าจาก MATERIALNAME (ช่อง O) ที่แสดงเฉพาะ Actual (ไม่มี Opp)
 let siteVisitLogsGlobal = [];
 
 // Filter Sets สำหรับกลุ่มสินค้า
