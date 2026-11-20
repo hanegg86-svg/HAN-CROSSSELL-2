@@ -4,7 +4,7 @@
  * ปรับปรุง:
  * 1. ยอด Actual ดึงค่าปริมาณขายจากช่อง AL (Actual_RUNIT) แทนช่อง AB (Actual)
  * 2. ช่องหน่วย (Unit) ดึงจากช่อง AM (Report_Unit) / Sales_Unit
- * 3. คงค่าช่วงเวลาที่เลือกไว้ (ไม่ Reset) เมื่อสลับหน่วย และอัปเดตสรุป KPI
+ * 3. เชื่อมโยงช่วงเวลา (Two-way Sync) กับตัวกรองช่วงเวลาหลักบน Header (Master Period Filter)
  * 4. รองรับการรวมยอด Dealer Actual เข้าโครงการหลัก (Main Project) ตามกฎการรวมโครงการ
  * 5. อัปเดตรายชื่อกลุ่มสินค้าที่เคยเกิด Actual เพื่อเชื่อมกับตัวกรองในส่วน Sales Forecast อัตโนมัติ
  * 6. หากแถวในไฟล์ Dealer ไม่มีชื่อในช่อง APP_NAME (ช่อง I) และ PRD_GROUP_NAME (ช่อง K) ให้ใช้ชื่อจากช่อง MATERIALNAME (ช่อง O) และแสดงเฉพาะยอด Actual ในกราฟโดยไม่มี Opp
@@ -217,17 +217,18 @@ function processDealerCSV(rows) {
   }
 }
 
-function renderDealerTable() {
-  const tbody = document.getElementById('dealerTableBody');
-  if (!tbody) return;
+function getFilteredDealerItems() {
   const searchTerm = (document.getElementById('dealerSearchInput')?.value || '').toLowerCase().trim();
   const selectedYear = document.getElementById('dealerYearFilter')?.value || 'all';
   const selectedMonth = document.getElementById('dealerMonthFilter')?.value || 'all';
 
-  const filtered = matchedDealerList.filter(item => {
+  return matchedDealerList.filter(item => {
     if (selectedMasterProject !== 'all') {
       const matchProj = item.projectId === selectedMasterProject || item.projectName === selectedMasterProject;
       if (!matchProj) return false;
+    }
+    if (typeof isDealerItemInMasterMonthRange === 'function' && !isDealerItemInMasterMonthRange(item)) {
+      return false;
     }
     if (selectedYear !== 'all' && item.year !== selectedYear) return false;
     if (selectedMonth !== 'all' && item.month !== selectedMonth) return false;
@@ -241,6 +242,13 @@ function renderDealerTable() {
     }
     return true;
   });
+}
+
+function renderDealerTable() {
+  const tbody = document.getElementById('dealerTableBody');
+  if (!tbody) return;
+
+  const filtered = getFilteredDealerItems();
 
   let sumActual = 0;
   let sumNetAmount = 0;
@@ -287,27 +295,7 @@ function renderDealerTable() {
 }
 
 function exportDealerToExcel() {
-  const selectedYear = document.getElementById('dealerYearFilter')?.value || 'all';
-  const selectedMonth = document.getElementById('dealerMonthFilter')?.value || 'all';
-  const searchTerm = (document.getElementById('dealerSearchInput')?.value || '').toLowerCase().trim();
-
-  const filtered = matchedDealerList.filter(item => {
-    if (selectedMasterProject !== 'all') {
-      const matchProj = item.projectId === selectedMasterProject || item.projectName === selectedMasterProject;
-      if (!matchProj) return false;
-    }
-    if (selectedYear !== 'all' && item.year !== selectedYear) return false;
-    if (selectedMonth !== 'all' && item.month !== selectedMonth) return false;
-    if (searchTerm) {
-      const match = item.dealerName.toLowerCase().includes(searchTerm) ||
-                    item.dealerId.toLowerCase().includes(searchTerm) ||
-                    item.projectId.toLowerCase().includes(searchTerm) ||
-                    item.projectName.toLowerCase().includes(searchTerm) ||
-                    item.productGroup.toLowerCase().includes(searchTerm);
-      if (!match) return false;
-    }
-    return true;
-  });
+  const filtered = getFilteredDealerItems();
 
   if (!filtered || filtered.length === 0) {
     alert('ไม่มีข้อมูล Dealer ตามเงื่อนไขสำหรับ Export');
@@ -335,24 +323,16 @@ function initDealerComparisonControls() {
   const sMonth = document.getElementById('dealerCompStartMonthSelect');
   const eMonth = document.getElementById('dealerCompEndMonthSelect');
   if (sMonth && eMonth && allMonthHeadersGlobal.length > 0) {
-    const currentStartVal = sMonth.value;
-    const currentEndVal = eMonth.value;
-
     const opts = allMonthHeadersGlobal.map((m, idx) => `<option value="${idx}">${escapeHtml(m.monthYear)}</option>`).join('');
     sMonth.innerHTML = opts;
     eMonth.innerHTML = opts;
 
-    if (currentStartVal !== '' && sMonth.querySelector(`option[value="${currentStartVal}"]`)) {
-      sMonth.value = currentStartVal;
-    } else {
-      sMonth.value = "0";
-    }
+    const { startIdx, endIdx } = typeof getEffectiveMasterMonthRange === 'function'
+      ? getEffectiveMasterMonthRange()
+      : { startIdx: 0, endIdx: allMonthHeadersGlobal.length - 1 };
 
-    if (currentEndVal !== '' && eMonth.querySelector(`option[value="${currentEndVal}"]`)) {
-      eMonth.value = currentEndVal;
-    } else {
-      eMonth.value = String(allMonthHeadersGlobal.length - 1);
-    }
+    sMonth.value = String(startIdx);
+    eMonth.value = String(endIdx);
   }
 
   renderDealerCompProductCheckboxes();
@@ -366,7 +346,7 @@ function handleDealerCompMonthRangeChange(e) {
   let startIdx = parseInt(sMonth.value, 10);
   let endIdx = parseInt(eMonth.value, 10);
   if (startIdx > endIdx) {
-    if (e.target.id === 'dealerCompStartMonthSelect') {
+    if (e && e.target && e.target.id === 'dealerCompStartMonthSelect') {
       endIdx = startIdx;
       eMonth.value = String(endIdx);
     } else {
@@ -374,7 +354,23 @@ function handleDealerCompMonthRangeChange(e) {
       sMonth.value = String(startIdx);
     }
   }
-  updateDealerComparisonCharts();
+
+  // ซิงค์ช่วงเดือนกลับไปยัง Master Period Filter บน Header และอัปเดตทั้ง Dashboard (Two-way Sync)
+  selectedMasterStartMonthIdx = startIdx;
+  selectedMasterEndMonthIdx = endIdx;
+
+  const masterStartEl = document.getElementById('masterStartMonthSelect');
+  const masterEndEl = document.getElementById('masterEndMonthSelect');
+  if (masterStartEl) masterStartEl.value = String(startIdx);
+  if (masterEndEl) masterEndEl.value = String(endIdx);
+
+  if (typeof salesRawRows !== 'undefined' && salesRawRows && typeof processSalesCSV === 'function') {
+    processSalesCSV(salesRawRows);
+  } else {
+    updateDealerComparisonCharts();
+    if (typeof updateKpiSummary === 'function') updateKpiSummary();
+    renderDealerTable();
+  }
 }
 
 function renderDealerCompProductCheckboxes() {
@@ -470,15 +466,9 @@ function updateDealerComparisonCharts() {
   if (!parsedDataRowsGlobal || parsedDataRowsGlobal.length === 0) return;
   const unitSuffix = getUnitSuffix();
 
-  const sMonth = document.getElementById('dealerCompStartMonthSelect');
-  const eMonth = document.getElementById('dealerCompEndMonthSelect');
-  let startIdx = 0;
-  let endIdx = allMonthHeadersGlobal.length - 1;
-
-  if (sMonth && eMonth) {
-    startIdx = parseInt(sMonth.value, 10) || 0;
-    endIdx = parseInt(eMonth.value, 10) || (allMonthHeadersGlobal.length - 1);
-  }
+  const { startIdx, endIdx } = typeof getEffectiveMasterMonthRange === 'function'
+    ? getEffectiveMasterMonthRange()
+    : { startIdx: 0, endIdx: allMonthHeadersGlobal.length - 1 };
 
   const selectedMonthHeaders = allMonthHeadersGlobal.slice(startIdx, endIdx + 1);
 

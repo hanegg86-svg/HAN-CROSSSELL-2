@@ -4,6 +4,8 @@
  */
 let geminiApiKey = '';
 let selectedMasterProject = 'all'; // ตัวกรองโครงการหลักจุดเดียวคุมทั้ง App
+let selectedMasterStartMonthIdx = null; // ดัชนีเดือนเริ่มต้นของตัวกรองช่วงเวลาหลัก (null = 0)
+let selectedMasterEndMonthIdx = null;   // ดัชนีเดือนสิ้นสุดของตัวกรองช่วงเวลาหลัก (null = เดือนสุดท้าย)
 let projectMergeRules = []; // กฎการรวมโครงการ: [{ mainKey, mainId, mainName, sources: [{ key, id, name }] }]
 
 // ตารางราคาต่อหน่วย (ไม่ฝังราคาในโค้ด ใช้เฉพาะข้อมูลจากไฟล์ราคาต่อหน่วยที่อัปโหลดเท่านั้น)
@@ -77,6 +79,61 @@ let currentInactiveSort = { column: 'inactiveMonths', order: 'desc' };
 
 // Selected Images for AI Upload Modal
 let selectedSiteFiles = [];
+
+// ==========================================
+// Master Period Range Helpers (เชื่อมโยงช่วงเวลาหลักกับกราฟเปรียบเทียบ)
+// ==========================================
+function getEffectiveMasterMonthRange() {
+  const total = Array.isArray(allMonthHeadersGlobal) ? allMonthHeadersGlobal.length : 0;
+  if (total === 0) return { startIdx: 0, endIdx: -1, isFullRange: true };
+
+  let s = (selectedMasterStartMonthIdx !== null && selectedMasterStartMonthIdx !== undefined)
+    ? parseInt(selectedMasterStartMonthIdx, 10)
+    : 0;
+  let e = (selectedMasterEndMonthIdx !== null && selectedMasterEndMonthIdx !== undefined)
+    ? parseInt(selectedMasterEndMonthIdx, 10)
+    : (total - 1);
+
+  if (isNaN(s) || s < 0) s = 0;
+  if (s >= total) s = total - 1;
+  if (isNaN(e) || e < 0 || e >= total) e = total - 1;
+  if (s > e) {
+    const tmp = s;
+    s = e;
+    e = tmp;
+  }
+
+  return {
+    startIdx: s,
+    endIdx: e,
+    isFullRange: (s === 0 && e === total - 1)
+  };
+}
+
+function isDealerItemInMasterMonthRange(item) {
+  if (!allMonthHeadersGlobal || allMonthHeadersGlobal.length === 0) return true;
+  const { startIdx, endIdx, isFullRange } = getEffectiveMasterMonthRange();
+  if (isFullRange) return true;
+  if (endIdx < startIdx) return false;
+
+  const targetHeaders = allMonthHeadersGlobal.slice(startIdx, endIdx + 1);
+  if (typeof getDealerItemMonthHeaderIndex === 'function') {
+    return getDealerItemMonthHeaderIndex(item, targetHeaders) !== -1;
+  }
+
+  let mNum = parseInt(item.month, 10);
+  if (isNaN(mNum)) {
+    const thaiMonthNames = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+    const idx = thaiMonthNames.findIndex(name => String(item.month || '').includes(name.replace('.', '')));
+    if (idx !== -1) mNum = idx + 1;
+  }
+  let yNum = parseInt(item.year, 10);
+  if (!isNaN(yNum)) yNum = normalizeYear(yNum);
+  if (isNaN(mNum) || isNaN(yNum)) return false;
+  const mIdx0 = mNum - 1;
+
+  return targetHeaders.some(h => h.parsedDate && h.parsedDate.year === yNum && h.parsedDate.month === mIdx0);
+}
 
 // ==========================================
 // Project Merge Lookup Helpers (Actual & Site Visit Only)

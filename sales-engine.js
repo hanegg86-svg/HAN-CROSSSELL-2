@@ -1,16 +1,17 @@
 /**
  * Sales Engine & Master Filters (sales-engine.js)
- * จัดการข้อมูลไฟล์ยอดขายหลัก Ropp vs Act, Master Filter, KPI, ตารางโครงการ, Inactive และ Cross-sell
+ * จัดการข้อมูลไฟล์ยอดขายหลัก Ropp vs Act, Master Filter (โครงการ + ช่วงเวลา), KPI, ตารางโครงการ, Inactive และ Cross-sell
  * ปรับปรุง:
- * 1. ยอดขายจริงรวม (Total Act) และอัตราความสำเร็จคำนวณจากไฟล์ Dealer CSV (matchedDealerList) โดยตรง
- * 2. รองรับปุ่ม "รวมข้อมูลโครงการ" (ย้ายเฉพาะยอด Actual และรายงาน Site Visit เข้าโครงการหลัก)
- * 3. รองรับปุ่ม "Backup JSON" และ "Restore JSON" แบบเลือกหมวดหมู่ได้ และประกอบไฟล์แบบแบ่งส่วน (Chunked Blob Assembly)
- * 4. เชื่อมตัวกรองรายงาน Weekly แบบเลือกได้ 1 เดือนหรือหลายเดือน (Multi-Select Month Filter) เข้ากับปุ่มใน Section 1 และ Modal Export
- * 5. เพิ่มระบบ "ตารางพักรายการเตรียม Export (Export Staging Table)" และระบบ AI สรุป 2 โหมด (สรุปรวมเป็น 1 แถว / สรุปแยกตามรายโครงการ) ด้วย gemini-3.5-flash-lite
- * 6. รองรับเมนูพับเก็บได้บนหน้าจอมือถือ (toggleMobileHeaderTools)
- * 7. รองรับตัวกรองย่อยสำหรับสลับหน่วยแสดงผล (บาท / หน่วยสินค้า) และตัวกรองเฉพาะสินค้าที่เคยเกิด Actual (Dealer) ในส่วน Sales Forecast
- * 8. ใช้ตารางราคาต่อหน่วยเฉพาะจากไฟล์ราคา CSV ที่อัปโหลดเท่านั้น (ไม่ใช้ราคาฝังในโค้ด)
- * 9. ซิงค์รายการสินค้าจาก MATERIALNAME (ช่อง O) ของไฟล์ Dealer เข้ากับตัวกรองกราฟเปรียบเทียบเสมอ
+ * 1. เพิ่มตัวกรองช่วงเวลาหลัก (Master Period Filter) ที่ Header เชื่อมโยง 2 ทางกับช่วงเวลาของกราฟเปรียบเทียบ Ropp vs Dealer Actual
+ * 2. ยอดขายจริงรวม (Total Act) และอัตราความสำเร็จคำนวณจากไฟล์ Dealer CSV (matchedDealerList) ตามโครงการและช่วงเวลาที่เลือก
+ * 3. รองรับปุ่ม "รวมข้อมูลโครงการ" (ย้ายเฉพาะยอด Actual และรายงาน Site Visit เข้าโครงการหลัก)
+ * 4. รองรับปุ่ม "Backup JSON" และ "Restore JSON" แบบเลือกหมวดหมู่ได้ และประกอบไฟล์แบบแบ่งส่วน (Chunked Blob Assembly)
+ * 5. เชื่อมตัวกรองรายงาน Weekly แบบเลือกได้ 1 เดือนหรือหลายเดือน (Multi-Select Month Filter) เข้ากับปุ่มใน Section 1 และ Modal Export
+ * 6. เพิ่มระบบ "ตารางพักรายการเตรียม Export (Export Staging Table)" และระบบ AI สรุป 2 โหมด (สรุปรวมเป็น 1 แถว / สรุปแยกตามรายโครงการ) ด้วย gemini-3.5-flash-lite
+ * 7. รองรับเมนูพับเก็บได้บนหน้าจอมือถือ (toggleMobileHeaderTools)
+ * 8. รองรับตัวกรองย่อยสำหรับสลับหน่วยแสดงผล (บาท / หน่วยสินค้า) และตัวกรองเฉพาะสินค้าที่เคยเกิด Actual (Dealer) ในส่วน Sales Forecast
+ * 9. ใช้ตารางราคาต่อหน่วยเฉพาะจากไฟล์ราคา CSV ที่อัปโหลดเท่านั้น (ไม่ใช้ราคาฝังในโค้ด)
+ * 10. ซิงค์รายการสินค้าจาก MATERIALNAME (ช่อง O) ของไฟล์ Dealer เข้ากับตัวกรองกราฟเปรียบเทียบเสมอ
  */
 
 function toggleMobileHeaderTools() {
@@ -46,6 +47,87 @@ function handleSalesFile(file) {
       }
     });
   });
+}
+
+function populateMasterMonthSelects() {
+  const sMonth = document.getElementById('masterStartMonthSelect');
+  const eMonth = document.getElementById('masterEndMonthSelect');
+  if (!sMonth || !eMonth) return;
+
+  if (!allMonthHeadersGlobal || allMonthHeadersGlobal.length === 0) {
+    sMonth.innerHTML = '<option value="0">เริ่มต้น</option>';
+    eMonth.innerHTML = '<option value="0">สิ้นสุด</option>';
+    return;
+  }
+
+  const { startIdx, endIdx } = getEffectiveMasterMonthRange();
+  const opts = allMonthHeadersGlobal.map((m, idx) => `<option value="${idx}">${escapeHtml(m.monthYear)}</option>`).join('');
+  sMonth.innerHTML = opts;
+  eMonth.innerHTML = opts;
+
+  sMonth.value = String(startIdx);
+  eMonth.value = String(endIdx);
+}
+
+function syncMasterPeriodToDealerComparisonSelects() {
+  const dStart = document.getElementById('dealerCompStartMonthSelect');
+  const dEnd = document.getElementById('dealerCompEndMonthSelect');
+  if (!dStart || !dEnd || !allMonthHeadersGlobal || allMonthHeadersGlobal.length === 0) return;
+
+  const { startIdx, endIdx } = getEffectiveMasterMonthRange();
+  if (dStart.querySelector(`option[value="${startIdx}"]`)) {
+    dStart.value = String(startIdx);
+  }
+  if (dEnd.querySelector(`option[value="${endIdx}"]`)) {
+    dEnd.value = String(endIdx);
+  }
+}
+
+function handleMasterMonthRangeChange(e) {
+  const sMonth = document.getElementById('masterStartMonthSelect');
+  const eMonth = document.getElementById('masterEndMonthSelect');
+  if (!sMonth || !eMonth || !allMonthHeadersGlobal || allMonthHeadersGlobal.length === 0) return;
+
+  let startIdx = parseInt(sMonth.value, 10);
+  let endIdx = parseInt(eMonth.value, 10);
+  if (isNaN(startIdx)) startIdx = 0;
+  if (isNaN(endIdx)) endIdx = allMonthHeadersGlobal.length - 1;
+
+  if (startIdx > endIdx) {
+    if (e && e.target && e.target.id === 'masterStartMonthSelect') {
+      endIdx = startIdx;
+      eMonth.value = String(endIdx);
+    } else {
+      startIdx = endIdx;
+      sMonth.value = String(startIdx);
+    }
+  }
+
+  selectedMasterStartMonthIdx = startIdx;
+  selectedMasterEndMonthIdx = endIdx;
+
+  syncMasterPeriodToDealerComparisonSelects();
+
+  if (salesRawRows) {
+    processSalesCSV(salesRawRows);
+  } else {
+    applyMasterProjectFilter();
+  }
+}
+
+function resetMasterMonthRange() {
+  if (!allMonthHeadersGlobal || allMonthHeadersGlobal.length === 0) return;
+  selectedMasterStartMonthIdx = 0;
+  selectedMasterEndMonthIdx = allMonthHeadersGlobal.length - 1;
+
+  populateMasterMonthSelects();
+  syncMasterPeriodToDealerComparisonSelects();
+
+  if (salesRawRows) {
+    processSalesCSV(salesRawRows);
+  } else {
+    applyMasterProjectFilter();
+  }
 }
 
 function processSalesCSV(rows) {
@@ -115,6 +197,9 @@ function processSalesCSV(rows) {
   }
 
   allMonthHeadersGlobal = monthHeaders;
+
+  // คำนวณช่วงเดือนที่มีผลตาม Master Period Filter บน Header
+  const { startIdx: activeStartIdx, endIdx: activeEndIdx } = getEffectiveMasterMonthRange();
 
   let futureMonthHeaders = monthHeaders.filter(m => {
     if (!m.parsedDate) return false;
@@ -189,16 +274,19 @@ function processSalesCSV(rows) {
     monthHeaders.forEach((m, mIdx) => {
       const rUnit = parseNum(r[m.roppCol]);
       const aUnit = parseNum(r[m.actCol]);
-      rowRoppUnitSum += rUnit;
-      rowActUnitSum += aUnit;
 
       const rVal = displayMode === 'baht' ? (rUnit * unitPrice) : rUnit;
       const aVal = displayMode === 'baht' ? (aUnit * unitPrice) : aUnit;
 
-      rowRoppSum += rVal;
-      rowActSum += aVal;
+      // รวมยอดเฉพาะเดือนที่อยู่ในช่วงเวลาที่เลือกบน Header (Master Period Filter)
+      if (mIdx >= activeStartIdx && mIdx <= activeEndIdx) {
+        rowRoppUnitSum += rUnit;
+        rowActUnitSum += aUnit;
+        rowRoppSum += rVal;
+        rowActSum += aVal;
+      }
 
-      // สะสมประวัติการซื้อจริงในอดีตตามโครงการเป้าหมาย (actualTargetKey) เพื่อตรวจ Inactive
+      // สะสมประวัติการซื้อจริงในอดีตตามโครงการเป้าหมาย (actualTargetKey) เพื่อตรวจ Inactive (เทียบกับปัจจุบันเสมอ)
       let isNotFuture = true;
       if (m.parsedDate) {
         if (m.parsedDate.year > currentYear || (m.parsedDate.year === currentYear && m.parsedDate.month > currentMonth)) {
@@ -368,6 +456,7 @@ function processSalesCSV(rows) {
   }
 
   populateMasterProjectSelect();
+  populateMasterMonthSelects();
   initForecastControls();
   initDealerComparisonControls();
   updateUIUnitLabels();
@@ -459,7 +548,7 @@ function applyMasterProjectFilter() {
 }
 
 /**
- * คำนวณสรุป KPI Dashboard โดยคำนวณยอดขายจริงรวม (Total Act) จากไฟล์ Dealer CSV (matchedDealerList)
+ * คำนวณสรุป KPI Dashboard โดยคำนวณยอดขายจริงรวม (Total Act) จากไฟล์ Dealer CSV (matchedDealerList) ตามโครงการและช่วงเวลาหลักที่เลือก
  */
 function updateKpiSummary() {
   let filteredRopp = 0;
@@ -478,8 +567,9 @@ function updateKpiSummary() {
     filteredInactiveCount = inactiveList.length;
     filteredInactiveRev = inactiveList.reduce((acc, curr) => acc + curr.totalPastAct, 0);
 
-    // คำนวณยอดขายจริงรวมจากไฟล์ Dealer (matchedDealerList) ทั้งหมด
+    // คำนวณยอดขายจริงรวมจากไฟล์ Dealer (matchedDealerList) เฉพาะในช่วงเวลาหลักที่เลือก
     matchedDealerList.forEach(item => {
+      if (!isDealerItemInMasterMonthRange(item)) return;
       filteredAct += (displayMode === 'baht' ? item.netAmount : item.actual);
     });
   } else {
@@ -495,8 +585,9 @@ function updateKpiSummary() {
     filteredInactiveCount = projInactive.length;
     filteredInactiveRev = projInactive.reduce((acc, curr) => acc + curr.totalPastAct, 0);
 
-    // คำนวณยอดขายจริงเฉพาะโครงการที่เลือกจากไฟล์ Dealer (matchedDealerList)
+    // คำนวณยอดขายจริงเฉพาะโครงการและช่วงเวลาหลักที่เลือกจากไฟล์ Dealer (matchedDealerList)
     matchedDealerList.forEach(item => {
+      if (!isDealerItemInMasterMonthRange(item)) return;
       const isMatch = item.projectId === selectedMasterProject || 
                       item.projectName === selectedMasterProject ||
                       (proj && (item.projectId === proj.id || item.projectName === proj.name));
@@ -2734,6 +2825,8 @@ async function handleRestoreJsonFile(file) {
     unitPrices = {};
     dealerOnlyActualMaterialNamesSet.clear();
     allDealerCompProductGroups = [];
+    selectedMasterStartMonthIdx = null;
+    selectedMasterEndMonthIdx = null;
 
     const cachedPrice = await dbGet('cached_files', 'price_data');
     if (cachedPrice && cachedPrice.data) {
@@ -2764,6 +2857,10 @@ async function handleRestoreJsonFile(file) {
 
 // ผูกฟังก์ชันเข้ากับ window และ Event Delegation ระดับ document เพื่อให้ปุ่มทำงานได้เสมอ
 window.toggleMobileHeaderTools = toggleMobileHeaderTools;
+window.populateMasterMonthSelects = populateMasterMonthSelects;
+window.syncMasterPeriodToDealerComparisonSelects = syncMasterPeriodToDealerComparisonSelects;
+window.handleMasterMonthRangeChange = handleMasterMonthRangeChange;
+window.resetMasterMonthRange = resetMasterMonthRange;
 window.openMergeProjectsModal = openMergeProjectsModal;
 window.closeMergeProjectsModal = closeMergeProjectsModal;
 window.renderMergeSourceProjectsList = renderMergeSourceProjectsList;
@@ -2902,6 +2999,10 @@ async function initializeSalesEngineApp() {
       applyMasterProjectFilter();
     });
   }
+
+  // Master Period Range Listeners (เชื่อมโยงกับกราฟเปรียบเทียบ Ropp vs Actual)
+  document.getElementById('masterStartMonthSelect')?.addEventListener('change', handleMasterMonthRangeChange);
+  document.getElementById('masterEndMonthSelect')?.addEventListener('change', handleMasterMonthRangeChange);
 
   // Restore JSON File Input Listener
   const restoreJsonFileInput = document.getElementById('restoreJsonFileInput');

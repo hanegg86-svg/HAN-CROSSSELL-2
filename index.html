@@ -49,12 +49,12 @@
       </div>
       
       <div class="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-1.5 md:gap-2">
-        <!-- แถวตัวกรองหลัก (จัดเรียงคู่กัน 2 คอลัมน์บนมือถือ เพื่อประหยัดพื้นที่แนวตั้ง) -->
+        <!-- แถวตัวกรองหลัก (โครงการ + หน่วย + ช่วงเวลาหลัก) -->
         <div class="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-1.5 md:gap-2">
           <!-- ตัวกรองโครงการหลัก (Master Project Filter) จุดเดียวคุมทั้ง App -->
           <div class="inline-flex items-center gap-1 bg-indigo-50 border border-indigo-200 px-2 py-1 md:px-3 md:py-1.5 rounded-lg text-[11px] md:text-xs font-semibold shadow-sm min-w-0">
             <span class="text-indigo-900 shrink-0">🏗️<span class="hidden sm:inline"> โครงการ:</span></span>
-            <select id="masterProjectSelect" class="bg-white text-indigo-700 font-bold px-1.5 py-0.5 rounded border border-indigo-300 focus:outline-none cursor-pointer w-full sm:max-w-[180px] md:max-w-[240px] truncate">
+            <select id="masterProjectSelect" class="bg-white text-indigo-700 font-bold px-1.5 py-0.5 rounded border border-indigo-300 focus:outline-none cursor-pointer w-full sm:max-w-[180px] md:max-w-[220px] truncate">
               <option value="all">เลือกโครงการทั้งหมด</option>
             </select>
           </div>
@@ -66,6 +66,22 @@
               <option value="baht">มูลค่า (บาท)</option>
               <option value="unit">ปริมาณ (หน่วยสินค้า)</option>
             </select>
+          </div>
+
+          <!-- ตัวกรองช่วงเวลาหลัก (Master Period Filter เชื่อมโยงกับกราฟเปรียบเทียบ Ropp vs Actual) -->
+          <div class="col-span-2 inline-flex items-center gap-1 bg-emerald-50 border border-emerald-200 px-2 py-1 md:px-3 md:py-1.5 rounded-lg text-[11px] md:text-xs font-semibold shadow-sm min-w-0">
+            <span class="text-emerald-900 shrink-0">📅<span class="hidden sm:inline"> ช่วงเวลา:</span></span>
+            <select id="masterStartMonthSelect" class="bg-white text-emerald-800 font-bold px-1.5 py-0.5 rounded border border-emerald-300 focus:outline-none cursor-pointer flex-1 sm:w-auto min-w-0">
+              <option value="0">เริ่มต้น</option>
+            </select>
+            <span class="text-emerald-700 shrink-0">ถึง</span>
+            <select id="masterEndMonthSelect" class="bg-white text-emerald-800 font-bold px-1.5 py-0.5 rounded border border-emerald-300 focus:outline-none cursor-pointer flex-1 sm:w-auto min-w-0">
+              <option value="0">สิ้นสุด</option>
+            </select>
+            <button type="button" onclick="resetMasterMonthRange()" title="รีเซ็ตช่วงเวลาทั้งหมด"
+                    class="ml-0.5 px-1.5 py-0.5 bg-white hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded text-[10px] font-bold shrink-0 transition-colors">
+              ทั้งหมด
+            </button>
           </div>
         </div>
 
@@ -375,11 +391,11 @@
               <span>📊</span> เปรียบเทียบ Ropp (ยอดขาย) vs Dealer Actual (ผู้แทนจำหน่าย)
             </h2>
             <p class="text-xs text-emerald-700 mt-0.5" id="dealerCompSubtitle">
-              จับคู่รหัสโครงการและกลุ่มสินค้า เปรียบเทียบโอกาส (Ropp) กับยอดขายจริงผ่านผู้แทนจำหน่าย (Dealer Actual)
+              จับคู่รหัสโครงการและกลุ่มสินค้า เปรียบเทียบโอกาส (Ropp) กับยอดขายจริงผ่านผู้แทนจำหน่าย (Dealer Actual) — เชื่อมโยงช่วงเวลาหลักด้านบน
             </p>
           </div>
           <div class="flex flex-wrap items-center gap-2">
-            <!-- ตัวกรองช่วงเดือนสำหรับ Ropp vs Dealer Actual -->
+            <!-- ตัวกรองช่วงเดือนสำหรับ Ropp vs Dealer Actual (เชื่อมโยง 2 ทางกับช่วงเวลาหลักด้านบน) -->
             <div class="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg text-xs shadow-sm">
               <span class="text-emerald-900 font-semibold">📅 ช่วงเดือน:</span>
               <select id="dealerCompStartMonthSelect" class="bg-white text-emerald-800 font-medium px-1.5 py-0.5 rounded border border-emerald-300 focus:outline-none"></select>
@@ -1408,13 +1424,13 @@
   </div>
 
   <!-- 7 Modular App Scripts -->
-  <script src="db.js?v=16"></script>
-  <script src="state.js?v=16"></script>
-  <script src="dealer.js?v=16"></script>
-  <script src="forecast.js?v=16"></script>
-  <script src="site-visit.js?v=16"></script>
-  <script src="sales-engine.js?v=16"></script>
-  <script src="pptx-export.js?v=16"></script>
+  <script src="db.js?v=17"></script>
+  <script src="state.js?v=17"></script>
+  <script src="dealer.js?v=17"></script>
+  <script src="forecast.js?v=17"></script>
+  <script src="site-visit.js?v=17"></script>
+  <script src="sales-engine.js?v=17"></script>
+  <script src="pptx-export.js?v=17"></script>
 
   <!-- PWA Service Worker Registration -->
   <script>
