@@ -8,6 +8,7 @@
  * เพิ่มสไลด์ตาราง Matrix คาดการณ์ยอดขาย (โครงการ x กลุ่มสินค้า) โดยตัดรายการสินค้าและโครงการที่ไม่มี Forecast ออกอัตโนมัติ
  * ดึงตัวกรองช่วงเดือน กลุ่มสินค้า (รวมตัวกรองเฉพาะสินค้าที่เคยเกิด Actual และสินค้าที่กดเพิ่มเอง) และหน่วยแสดงผลแยกเฉพาะส่วน Sales Forecast มาสร้างกราฟและตารางอย่างแม่นยำ
  * รองรับรายการสินค้าจาก MATERIALNAME (ช่อง O) ของไฟล์ Dealer ที่ไม่มี App Name / Prd Group โดยแสดงเฉพาะค่า Actual (ไม่มี Opp)
+ * หน้าสรุป KPI และตาราง Top Projects ดึงยอดขายจริงทั้งหมด (Actual) จากไฟล์ Dealer ตามโครงการและช่วงเวลาที่เลือก (รวมสินค้าที่ไม่มี Opp เช่น Post Plus)
  */
 
 let pptxAvailableProjectsList = []; // [{ key, id, name }]
@@ -1181,7 +1182,9 @@ async function executePptxExport(mode = 'combined') {
     let visits = await getFilteredSiteVisitsForPptx();
     const charts = collectAvailableChartConfigs();
     const matrixData = computeForecastMatrixForPptx();
-    const hasSalesData = (Array.isArray(projectList) && projectList.length > 0) || Boolean(matrixData);
+    const hasSalesData = (Array.isArray(projectList) && projectList.length > 0) ||
+                         (Array.isArray(matchedDealerList) && matchedDealerList.length > 0) ||
+                         Boolean(matrixData);
 
     if (mode === 'site_only' && visits.length === 0) {
       alert('ไม่พบข้อมูล Site Report สำหรับโครงการที่เลือก');
@@ -1498,26 +1501,129 @@ function buildAnalyticsAndChartSlides(pptx, charts, includeSectionDivider) {
   addForecastMatrixSlides(pptx);
 }
 
+/**
+ * คำนวณสรุป KPI และรวมยอดขายจริงทั้งหมด (Dealer Actual) รายโครงการ
+ * โดยรวมสินค้าที่ไม่มี Opportunity ในไฟล์ยอดขายหลัก (เช่น Post Plus) และกรองตามช่วงเวลาที่เลือก
+ */
 function computeKpiStatsForSelectedProjects() {
   let totalRopp = 0;
   let totalAct = 0;
   let crossSellCount = 0;
 
+  const projectSummaryMap = new Map();
+
+  // 1. รวบรวมข้อมูลพื้นฐานและ Ropp จาก projectList (ไฟล์ยอดขายหลัก)
   const filteredProjects = (projectList || []).filter(p =>
     isProjectSelectedForPptx(p.id, p.name, p.key)
   );
 
   filteredProjects.forEach(p => {
+    const pId = String(p.id || '').trim();
+    const pName = String(p.name || p.id || 'ไม่ระบุชื่อโครงการ').trim();
+    const mapKey = pId || pName;
+
     totalRopp += p.totalRopp || 0;
-    if (Array.isArray(p.boughtProducts) && p.boughtProducts.length > 1) {
-      crossSellCount++;
+
+    if (!projectSummaryMap.has(mapKey)) {
+      projectSummaryMap.set(mapKey, {
+        key: p.key || mapKey,
+        id: pId,
+        name: pName,
+        totalRopp: p.totalRopp || 0,
+        totalAct: 0,
+        dealerProductTotals: {},
+        fallbackSalesActProducts: Array.isArray(p.boughtProducts) ? [...p.boughtProducts] : [],
+        fallbackSalesActTotal: p.totalAct || 0,
+        rate: 0
+      });
+    } else {
+      const existing = projectSummaryMap.get(mapKey);
+      existing.totalRopp += p.totalRopp || 0;
+      existing.fallbackSalesActTotal += p.totalAct || 0;
     }
   });
 
-  (matchedDealerList || []).forEach(item => {
-    if (isProjectSelectedForPptx(item.projectId, item.projectName)) {
-      totalAct += (displayMode === 'baht' ? item.netAmount : item.actual);
+  // Helper หา Entry ของโครงการใน projectSummaryMap (จับคู่ด้วยรหัสโครงการหรือชื่อโครงการ)
+  function findOrCreateProjectSummaryEntry(rawId, rawName) {
+    const cleanId = String(rawId || '').trim();
+    const cleanName = String(rawName || '').trim();
+    const validId = (cleanId && cleanId !== '-') ? cleanId : '';
+
+    if (validId && projectSummaryMap.has(validId)) {
+      return projectSummaryMap.get(validId);
     }
+
+    for (const entry of projectSummaryMap.values()) {
+      if (validId && entry.id && entry.id === validId) return entry;
+      if (cleanName && cleanName !== '-' && entry.name && entry.name === cleanName) return entry;
+    }
+
+    const newKey = validId || cleanName || 'Unknown';
+    const created = {
+      key: newKey,
+      id: validId,
+      name: (cleanName && cleanName !== '-') ? cleanName : newKey,
+      totalRopp: 0,
+      totalAct: 0,
+      dealerProductTotals: {},
+      fallbackSalesActProducts: [],
+      fallbackSalesActTotal: 0,
+      rate: 0
+    };
+    projectSummaryMap.set(newKey, created);
+    return created;
+  }
+
+  const hasDealerData = Array.isArray(matchedDealerList) && matchedDealerList.length > 0;
+
+  // 2. รวมยอดขายจริงทั้งหมด (Actual) จากไฟล์ Dealer ตามโครงการและช่วงเวลาที่เลือก (รวมสินค้าที่ไม่มี Opp เช่น Post Plus)
+  if (hasDealerData) {
+    matchedDealerList.forEach(item => {
+      if (!isProjectSelectedForPptx(item.projectId, item.projectName)) return;
+      if (typeof isDealerItemInMasterMonthRange === 'function' && !isDealerItemInMasterMonthRange(item)) return;
+
+      const actVal = displayMode === 'baht' ? (item.netAmount || 0) : (item.actual || 0);
+      totalAct += actVal;
+
+      const entry = findOrCreateProjectSummaryEntry(item.projectId, item.projectName);
+      entry.totalAct += actVal;
+
+      const prodLabel = String(item.productGroup || '').trim();
+      if (prodLabel && prodLabel !== '-' && (actVal > 0 || (item.actual || 0) > 0 || (item.netAmount || 0) > 0)) {
+        entry.dealerProductTotals[prodLabel] = (entry.dealerProductTotals[prodLabel] || 0) + actVal;
+      }
+    });
+  }
+
+  // 3. สรุปรายชื่อสินค้าที่เกิด Actual แล้ว, อัตรา % Realized และจำนวนโครงการ Cross-sell ของแต่ละโครงการ
+  const mergedProjectsList = Array.from(projectSummaryMap.values()).map(entry => {
+    let boughtProducts = [];
+    if (hasDealerData) {
+      boughtProducts = Object.entries(entry.dealerProductTotals)
+        .filter(([, val]) => val > 0)
+        .sort((a, b) => b[1] - a[1])
+        .map(([prodName]) => prodName);
+    } else {
+      entry.totalAct = entry.fallbackSalesActTotal;
+      boughtProducts = entry.fallbackSalesActProducts;
+      totalAct += entry.totalAct;
+    }
+
+    if (boughtProducts.length > 1) {
+      crossSellCount++;
+    }
+
+    const rate = entry.totalRopp > 0 ? (entry.totalAct / entry.totalRopp) * 100 : 0;
+
+    return {
+      key: entry.key,
+      id: entry.id,
+      name: entry.name,
+      totalRopp: entry.totalRopp,
+      totalAct: entry.totalAct,
+      boughtProducts: boughtProducts,
+      rate: rate
+    };
   });
 
   const filteredInactive = (inactiveList || []).filter(it =>
@@ -1535,7 +1641,7 @@ function computeKpiStatsForSelectedProjects() {
     crossSellCount,
     inactiveCount,
     inactiveRev,
-    filteredProjects
+    filteredProjects: mergedProjectsList
   };
 }
 
@@ -1556,7 +1662,7 @@ function addKpiSummarySlide(pptx) {
 
   const cards = [
     { label: `มูลค่าโอกาสรวม (${unitText})`, value: formatNumber(stats.totalRopp), sub: 'Total Ropp', accent: '2563EB', bg: 'EFF6FF' },
-    { label: `ยอดขายจริงรวม (${unitText})`, value: formatNumber(stats.totalAct), sub: 'Dealer Actual', accent: '059669', bg: 'ECFDF5' },
+    { label: `ยอดขายจริงรวม (${unitText})`, value: formatNumber(stats.totalAct), sub: 'Dealer Actual (ทั้งหมด)', accent: '059669', bg: 'ECFDF5' },
     { label: 'อัตราความสำเร็จ', value: `${stats.realizeRate}%`, sub: 'Realized Rate', accent: '4F46E5', bg: 'EEF2FF' },
     { label: 'โครงการ Cross-sell', value: `${stats.crossSellCount} โครงการ`, sub: 'ซื้อ > 1 กลุ่มสินค้า', accent: 'D97706', bg: 'FFFBEB' },
     { label: 'Actual หาย > 2 เดือน', value: `${stats.inactiveCount} รายการ`, sub: `ในอดีต: ${formatNumber(stats.inactiveRev)} ${unitText}`, accent: 'E11D48', bg: 'FFF1F2' }
@@ -1620,13 +1726,17 @@ function addKpiSummarySlide(pptx) {
       const boughtText = p.boughtProducts && p.boughtProducts.length > 0
         ? p.boughtProducts.slice(0, 3).join(', ') + (p.boughtProducts.length > 3 ? ` (+${p.boughtProducts.length - 3})` : '')
         : '-';
+      const rateDisplay = p.totalRopp > 0
+        ? `${(p.rate || 0).toFixed(1)}%`
+        : (p.totalAct > 0 ? '100%+' : '0.0%');
+
       tableRows.push([
         { text: p.id || '-', options: { fill: rowBg, align: 'center', color: '475569' } },
         { text: p.name || '-', options: { fill: rowBg, bold: true, color: '0F172A' } },
         { text: boughtText, options: { fill: rowBg, color: '334155' } },
         { text: formatNumber(p.totalRopp), options: { fill: rowBg, align: 'right', color: '1D4ED8' } },
         { text: formatNumber(p.totalAct), options: { fill: rowBg, align: 'right', bold: true, color: '047857' } },
-        { text: `${(p.rate || 0).toFixed(1)}%`, options: { fill: rowBg, align: 'center', bold: true, color: '4338CA' } }
+        { text: rateDisplay, options: { fill: rowBg, align: 'center', bold: true, color: '4338CA' } }
       ]);
     });
   }
