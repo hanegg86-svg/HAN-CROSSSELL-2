@@ -5,6 +5,7 @@
  * ตัดชื่อโครงการที่ยาวเกิน 20 ตัวอักษรเหลือ 20 ตัวอักษรในหัวข้อสไลด์เพื่อไม่ให้ล้นขอบ
  * รองรับตัวเลือก AI (gemini-3.5-flash-lite) สรุปรวม Site Report รายโครงการให้เหลือ 1 หน้าสไลด์เฉพาะตอนสร้างไฟล์ PPTX
  * แสดงวันที่เข้าตรวจครบทุกวันจากรายงานย่อยทั้งหมดในโครงการ (ไม่ย่อเป็นช่วงวันที่)
+ * เพิ่มระบบสรุปแบบกระชับ (Bullet + ยึดสถานะล่าสุด + จำกัดความยาวตัวอักษร) และ Auto-Fit Font Size ป้องกันข้อความล้นกรอบสไลด์
  * เพิ่มสไลด์ตาราง Matrix คาดการณ์ยอดขาย (โครงการ x กลุ่มสินค้า) โดยตัดรายการสินค้าและโครงการที่ไม่มี Forecast ออกอัตโนมัติ
  * ดึงตัวกรองช่วงเดือน กลุ่มสินค้า (รวมตัวกรองเฉพาะสินค้าที่เคยเกิด Actual และสินค้าที่กดเพิ่มเอง) และหน่วยแสดงผลแยกเฉพาะส่วน Sales Forecast มาสร้างกราฟและตารางอย่างแม่นยำ
  * รองรับรายการสินค้าจาก MATERIALNAME (ช่อง O) ของไฟล์ Dealer ที่ไม่มี App Name / Prd Group โดยแสดงเฉพาะค่า Actual (ไม่มี Opp)
@@ -443,12 +444,17 @@ async function prepareSummarizedSiteVisitsForPptx(visits, statusTextEl) {
 
 /**
  * เรียกใช้โมเดล gemini-3.5-flash-lite เพื่อสรุปรวมรายงานหลายรายการของ 1 โครงการ
- * โดยคงวันที่เข้าตรวจทั้งหมดทุกวันไว้ครบถ้วน (ไม่ย่อเป็นช่วงวันที่)
+ * กำชับให้ยุบรวมเรื่องเดียวกันที่อัปเดตซ้ำข้ามสัปดาห์เป็น Bullet สั้นกระชับ ไม่เกินช่องละ 230 ตัวอักษร เพื่อไม่ให้ล้นกรอบสไลด์
  */
 async function summarizeSingleProjectGroupWithAI(group, combinedImages, apiKey) {
   const allVisitDatesStr = collectAllUniqueVisitDates(group.items);
 
-  const rawReportsText = group.items.map((item, idx) => {
+  // เรียงรายงานย่อยจากเก่าไปใหม่เพื่อให้ AI เห็นพัฒนาการและยึดสถานะล่าสุดเป็นหลัก
+  const sortedItems = [...group.items].sort(
+    (a, b) => parseVisitDateTimestamp(a.visitDate) - parseVisitDateTimestamp(b.visitDate)
+  );
+
+  const rawReportsText = sortedItems.map((item, idx) => {
     return `[รายงานย่อยที่ ${idx + 1}]
 - วันที่เข้าตรวจ: ${item.visitDate || '-'}
 - ผู้รับเหมา: ${item.contractor || '-'}
@@ -459,20 +465,26 @@ async function summarizeSingleProjectGroupWithAI(group, combinedImages, apiKey) 
 - สิ่งที่ต้องติดตามสัปดาห์หน้า: ${item.nextWeekActions || '-'}`;
   }).join('\n\n---\n\n');
 
-  const promptText = `คุณคือผู้ช่วยวิศวกรและผู้จัดการฝ่ายขายโครงการก่อสร้าง (SCG B2B Sales) จงสังเคราะห์และสรุปรวมรายงานการเข้าเยี่ยมหน้างาน (Site Visit) จำนวน ${group.items.length} รายการต่อไปนี้ ซึ่งอยู่ภายใต้โครงการเดียวกันคือ "${group.projectName}" (${group.projectId || '-'}) ให้รวมเป็นรายงานสรุปฉบับเดียวที่กระชับ ชัดเจน ตัดข้อความที่ซ้ำซ้อนออก เพื่อนำไปจัดวางลงในสไลด์ PowerPoint 1 หน้า
+  const promptText = `คุณคือผู้ช่วยวิศวกรและผู้จัดการฝ่ายขายโครงการก่อสร้าง (SCG B2B Sales) จงสังเคราะห์และสรุปรวมรายงานการเข้าเยี่ยมหน้างาน (Site Visit) จำนวน ${group.items.length} รายการต่อไปนี้ ซึ่งอยู่ภายใต้โครงการเดียวกันคือ "${group.projectName}" (${group.projectId || '-'}) ให้รวมเป็นรายงานสรุปฉบับเดียวสำหรับจัดวางลงในสไลด์ PowerPoint 1 หน้า
+
+ข้อกำหนดสำคัญในการเขียนเพื่อไม่ให้ข้อความล้นกรอบสไลด์:
+1. ห้ามนำข้อความของแต่ละสัปดาห์มาต่อกันด้วยเครื่องหมาย "|" ให้ "ยุบรวมเรื่องเดียวกันที่อัปเดตซ้ำข้ามสัปดาห์" โดยยึดสถานะปัจจุบันล่าสุดเป็นหลัก และตัดคำฟุ่มเฟือยออกให้หมด
+2. เขียนเป็นข้อสั้นๆ (ขึ้นต้นแต่ละข้อด้วย "• ") หัวข้อละไม่เกิน 2-3 ข้อ และ "ความยาวแต่ละช่องต้องไม่เกิน 230 ตัวอักษร"
+3. คงตัวเลขสำคัญ ชื่อสินค้า และปริมาณสินค้าไว้ให้ครบถ้วน
+4. ค่า "riskLevel" ต้องตอบเป็นภาษาอังกฤษคำใดคำหนึ่งเท่านั้น คือ "Low" หรือ "Medium" หรือ "High"
 
 ตอบกลับเป็น JSON Object บริสุทธิ์เท่านั้น ตามโครงสร้างนี้:
 {
-  "contractor": "รายชื่อบริษัทผู้รับเหมาทั้งหมดที่เกี่ยวข้อง (หากมีหลายรายให้คั่นด้วยเครื่องหมายจุลภาค)",
-  "visitDate": "ระบุวันที่เข้าตรวจทั้งหมดทุกวันเรียงตามลำดับ คั่นด้วยเครื่องหมายจุลภาค ห้ามย่อเป็นช่วงวันที่ (เช่น 06/11/2026, 11/11/2026, 17/11/2026)",
-  "siteProgress": "สรุปรวมความคืบหน้าหน้างานและการใช้งานสินค้าทั้งหมดอย่างกระชับ ชัดเจน (ความยาวพอเหมาะสำหรับ 1 สไลด์)",
-  "materialForecast": "สรุปรวมแผนเรียกสินค้า (Material Forecast) ทั้งหมดของโครงการนี้",
-  "issuesAndRisks": "สรุปรวมปัญหาและความเสี่ยงหน้างานทั้งหมด (หากไม่มีให้ระบุว่า หน้างานดำเนินไปตามแผนงานปกติ)",
-  "nextWeekActions": "สรุปรวมสิ่งที่ต้องติดตามต่อในสัปดาห์หน้าทั้งหมด",
-  "riskLevel": "ประเมินระดับความเสี่ยงภาพรวมสูงสุดของโครงการ (Low หรือ Medium หรือ High)"
+  "contractor": "รายชื่อบริษัทผู้รับเหมาทั้งหมดที่เกี่ยวข้อง (คั่นด้วยเครื่องหมายจุลภาค)",
+  "visitDate": "ระบุวันที่เข้าตรวจทั้งหมดทุกวันเรียงตามลำดับ คั่นด้วยเครื่องหมายจุลภาค ห้ามย่อเป็นช่วงวันที่",
+  "siteProgress": "สรุปสถานะความคืบหน้าหน้างานและการใช้งานสินค้าล่าสุด (เป็น • Bullet สั้นกระชับ ไม่เกิน 230 ตัวอักษร)",
+  "materialForecast": "สรุปแผนเรียกสินค้าและปริมาณที่ต้องเข้าหน้างาน (เป็น • Bullet สั้นกระชับ ไม่เกิน 230 ตัวอักษร)",
+  "issuesAndRisks": "สรุปปัญหาและความเสี่ยงหน้างานที่ยังค้างอยู่ (หากไม่มีให้ระบุว่า • หน้างานดำเนินไปตามแผนงานปกติ ไม่เกิน 220 ตัวอักษร)",
+  "nextWeekActions": "สรุปสิ่งที่ต้องติดตามต่อในสัปดาห์หน้า (เป็น • Bullet สั้นกระชับ ไม่เกิน 220 ตัวอักษร)",
+  "riskLevel": "Low"
 }
 
-ข้อมูลรายงานย่อยของโครงการ:
+ข้อมูลรายงานย่อยของโครงการ (เรียงจากเก่าไปล่าสุด):
 ${rawReportsText}`;
 
   try {
@@ -484,7 +496,7 @@ ${rawReportsText}`;
       body: JSON.stringify({
         contents: [{ parts: [{ text: promptText }] }],
         generationConfig: {
-          temperature: 0.2,
+          temperature: 0.15,
           responseMimeType: 'application/json'
         }
       })
@@ -500,8 +512,10 @@ ${rawReportsText}`;
     const cleanedJsonStr = rawReply.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
     const parsed = JSON.parse(cleanedJsonStr);
 
-    const validRisks = ['Low', 'Medium', 'High'];
-    const finalRisk = validRisks.includes(parsed.riskLevel) ? parsed.riskLevel : 'Low';
+    const rawRisk = String(parsed.riskLevel || '').trim().toLowerCase();
+    let finalRisk = 'Low';
+    if (rawRisk.includes('high') || rawRisk.includes('วิกฤต')) finalRisk = 'High';
+    else if (rawRisk.includes('med') || rawRisk.includes('เฝ้าระวัง')) finalRisk = 'Medium';
 
     return {
       projectId: group.projectId || '-',
@@ -519,17 +533,17 @@ ${rawReportsText}`;
     };
   } catch (err) {
     console.error(`AI summarization fallback for project ${group.projectName}:`, err);
-    // กรณีเรียก AI ไม่สำเร็จ ให้รวมข้อความแบบต่อบรรทัดอัตโนมัติพร้อมแสดงวันที่เข้าตรวจครบทุกวัน
+    // กรณีเรียก AI ไม่สำเร็จ ให้รวมข้อความแบบตัดซ้ำอัตโนมัติพร้อมแสดงวันที่เข้าตรวจครบทุกวัน
     const uniqueValues = (arr) => Array.from(new Set(arr.map(x => String(x || '').trim()).filter(x => x && x !== '-')));
-    const contractors = uniqueValues(group.items.map(it => it.contractor));
-    const progressList = uniqueValues(group.items.map(it => it.siteProgress));
-    const forecastList = uniqueValues(group.items.map(it => it.materialForecast));
-    const issuesList = uniqueValues(group.items.map(it => it.issuesAndRisks));
-    const actionsList = uniqueValues(group.items.map(it => it.nextWeekActions));
+    const contractors = uniqueValues(sortedItems.map(it => it.contractor));
+    const progressList = uniqueValues(sortedItems.map(it => it.siteProgress));
+    const forecastList = uniqueValues(sortedItems.map(it => it.materialForecast));
+    const issuesList = uniqueValues(sortedItems.map(it => it.issuesAndRisks));
+    const actionsList = uniqueValues(sortedItems.map(it => it.nextWeekActions));
 
     let highestRisk = 'Low';
-    if (group.items.some(it => it.riskLevel === 'High')) highestRisk = 'High';
-    else if (group.items.some(it => it.riskLevel === 'Medium')) highestRisk = 'Medium';
+    if (sortedItems.some(it => it.riskLevel === 'High')) highestRisk = 'High';
+    else if (sortedItems.some(it => it.riskLevel === 'Medium')) highestRisk = 'Medium';
 
     return {
       projectId: group.projectId || '-',
@@ -1757,6 +1771,63 @@ function addKpiSummarySlide(pptx) {
 // ==========================================
 // ส่วนที่ 2: สไลด์ Site Report (รายงานความคืบหน้าและรูปถ่ายหน้างาน)
 // ==========================================
+
+/**
+ * คำนวณขนาดตัวอักษรและระยะห่างบรรทัดอัตโนมัติให้พอดีกับความสูงของกล่องข้อความ ป้องกันการล้นกรอบ
+ */
+function calcAutoFitTextLayout(rawText, boxWidthInches, boxHeightInches) {
+  const cleanText = String(rawText || '-').replace(/\r\n/g, '\n').trim() || '-';
+  const textAreaH = Math.max(0.55, boxHeightInches - 0.38);
+
+  // ประมาณจำนวนตัวอักษรต่อ 1 บรรทัดตามความกว้างกล่อง (กรณีมีรูปด้านซ้าย 6.45 นิ้ว หรือเต็มจอ 12.43 นิ้ว)
+  const baseCharsPerLine = boxWidthInches >= 10 ? 118 : 58;
+
+  const fontSteps = [
+    { size: 9.5, lineHeightIn: 0.185, spacing: 1.15 },
+    { size: 9.0, lineHeightIn: 0.172, spacing: 1.12 },
+    { size: 8.5, lineHeightIn: 0.160, spacing: 1.10 },
+    { size: 8.0, lineHeightIn: 0.148, spacing: 1.08 },
+    { size: 7.5, lineHeightIn: 0.138, spacing: 1.05 },
+    { size: 7.0, lineHeightIn: 0.128, spacing: 1.02 }
+  ];
+
+  for (const step of fontSteps) {
+    const charsPerLine = Math.max(24, Math.floor(baseCharsPerLine * (9.5 / step.size)));
+    const paragraphs = cleanText.split('\n');
+    let estimatedLines = 0;
+
+    paragraphs.forEach(p => {
+      const len = p.trim().length;
+      estimatedLines += len === 0 ? 1 : Math.ceil(len / charsPerLine);
+    });
+
+    const maxAllowedLines = Math.floor(textAreaH / step.lineHeightIn);
+    if (estimatedLines <= maxAllowedLines) {
+      return {
+        text: cleanText,
+        fontSize: step.size,
+        lineSpacingMultiple: step.spacing
+      };
+    }
+  }
+
+  // กรณีข้อความยาวมากแม้ลดฟอนต์เหลือ 7pt แล้ว ให้ตัดส่วนเกินท้ายสุดพร้อมเติม "..." เพื่อไม่ให้ทะลุกรอบล่าง
+  const minStep = fontSteps[fontSteps.length - 1];
+  const minCharsPerLine = Math.max(24, Math.floor(baseCharsPerLine * (9.5 / minStep.size)));
+  const maxLines = Math.max(3, Math.floor(textAreaH / minStep.lineHeightIn));
+  const maxSafeChars = Math.max(120, Math.floor(maxLines * minCharsPerLine * 0.9));
+
+  const trimmedText = cleanText.length > maxSafeChars
+    ? cleanText.slice(0, maxSafeChars - 3).trim() + '...'
+    : cleanText;
+
+  return {
+    text: trimmedText,
+    fontSize: minStep.size,
+    lineSpacingMultiple: minStep.spacing
+  };
+}
+
 function buildSiteReportSlides(pptx, visits, includeSectionDivider) {
   if (!visits || visits.length === 0) return;
 
@@ -1788,14 +1859,15 @@ function buildSiteReportSlides(pptx, visits, includeSectionDivider) {
       { maxTextW: 8.15 }
     );
 
+    const rawRisk = String(item.riskLevel || '').trim().toLowerCase();
     let riskBg = 'DCFCE7';
     let riskColor = '15803D';
     let riskLabel = 'ปกติ (Low Risk)';
-    if (item.riskLevel === 'High') {
+    if (rawRisk.includes('high') || rawRisk.includes('วิกฤต')) {
       riskBg = 'FFE4E6';
       riskColor = 'BE123C';
       riskLabel = 'วิกฤต (High Risk)';
-    } else if (item.riskLevel === 'Medium') {
+    } else if (rawRisk.includes('med') || rawRisk.includes('เฝ้าระวัง')) {
       riskBg = 'FEF3C7';
       riskColor = 'B45309';
       riskLabel = 'เฝ้าระวัง (Medium Risk)';
@@ -1818,6 +1890,7 @@ function buildSiteReportSlides(pptx, visits, includeSectionDivider) {
     const hasPhotos = imagesList.length > 0;
     const leftPanelW = hasPhotos ? 6.45 : 12.43;
 
+    // ความสูงรวม 4 กล่อง + ช่องว่าง = 1.62 + 1.48 + 1.38 + 1.38 + (3 * 0.11) = 6.19 นิ้ว (จบที่ y = 7.26 นิ้ว พอดีขอบล่างสไลด์ 7.5 นิ้ว)
     const sections = [
       {
         title: '1. ความคืบหน้า & การใช้งานสินค้า',
@@ -1825,7 +1898,7 @@ function buildSiteReportSlides(pptx, visits, includeSectionDivider) {
         bg: 'FFFFFF',
         border: 'CBD5E1',
         titleColor: '0F172A',
-        h: 1.55
+        h: 1.62
       },
       {
         title: '2. แผนเรียกสินค้า (Material Forecast)',
@@ -1833,7 +1906,7 @@ function buildSiteReportSlides(pptx, visits, includeSectionDivider) {
         bg: 'EEF2FF',
         border: 'C7D2FE',
         titleColor: '312E81',
-        h: 1.35
+        h: 1.48
       },
       {
         title: '3. ปัญหา / ความเสี่ยงหน้างาน',
@@ -1841,7 +1914,7 @@ function buildSiteReportSlides(pptx, visits, includeSectionDivider) {
         bg: 'FFF1F2',
         border: 'FECDD3',
         titleColor: '9F1239',
-        h: 1.35
+        h: 1.38
       },
       {
         title: '4. สิ่งที่ต้องติดตามต่อสัปดาห์หน้า',
@@ -1849,11 +1922,11 @@ function buildSiteReportSlides(pptx, visits, includeSectionDivider) {
         bg: 'ECFDF5',
         border: 'A7F3D0',
         titleColor: '065F46',
-        h: 1.35
+        h: 1.38
       }
     ];
 
-    let curY = 1.12;
+    let curY = 1.07;
     sections.forEach(sec => {
       slide.addShape(pptx.ShapeType.roundRect, {
         x: 0.45, y: curY, w: leftPanelW, h: sec.h,
@@ -1862,23 +1935,34 @@ function buildSiteReportSlides(pptx, visits, includeSectionDivider) {
       });
 
       slide.addText(sec.title, {
-        x: 0.62, y: curY + 0.08, w: leftPanelW - 0.34, h: 0.28,
-        fontFace: 'Tahoma', fontSize: 10.5, bold: true, color: sec.titleColor
+        x: 0.60, y: curY + 0.06, w: leftPanelW - 0.30, h: 0.25,
+        fontFace: 'Tahoma', fontSize: 10, bold: true, color: sec.titleColor
       });
 
-      slide.addText(String(sec.body), {
-        x: 0.62, y: curY + 0.36, w: leftPanelW - 0.34, h: sec.h - 0.44,
-        fontFace: 'Tahoma', fontSize: 10, color: '1E293B', valign: 'top', lineSpacingMultiple: 1.2
+      const fitted = calcAutoFitTextLayout(sec.body, leftPanelW, sec.h);
+
+      slide.addText(fitted.text, {
+        x: 0.60,
+        y: curY + 0.31,
+        w: leftPanelW - 0.30,
+        h: sec.h - 0.36,
+        fontFace: 'Tahoma',
+        fontSize: fitted.fontSize,
+        color: '1E293B',
+        valign: 'top',
+        wrap: true,
+        fit: 'shrink',
+        lineSpacingMultiple: fitted.lineSpacingMultiple
       });
 
-      curY += sec.h + 0.14;
+      curY += sec.h + 0.11;
     });
 
     if (hasPhotos) {
       const rightX = 7.12;
       const rightW = 5.76;
-      const rightY = 1.12;
-      const rightH = 5.82;
+      const rightY = 1.07;
+      const rightH = 6.19;
 
       slide.addShape(pptx.ShapeType.roundRect, {
         x: rightX, y: rightY, w: rightW, h: rightH,
