@@ -5,7 +5,7 @@
  * ตัดชื่อโครงการที่ยาวเกิน 20 ตัวอักษรเหลือ 20 ตัวอักษรในหัวข้อสไลด์เพื่อไม่ให้ล้นขอบ
  * รองรับตัวเลือก AI (gemini-3.5-flash-lite) สรุปรวม Site Report รายโครงการให้เหลือ 1 หน้าสไลด์เฉพาะตอนสร้างไฟล์ PPTX
  * แสดงวันที่เข้าตรวจครบทุกวันจากรายงานย่อยทั้งหมดในโครงการ (ไม่ย่อเป็นช่วงวันที่)
- * เพิ่มระบบสรุปแบบกระชับ (Bullet + ยึดสถานะล่าสุด + จำกัดความยาวตัวอักษร) และ Auto-Fit Font Size ป้องกันข้อความล้นกรอบสไลด์
+ * ปรับปรุงระบบสรุปด้วย AI ให้กระชับ ตัดข้อความซ้ำซ้อนและข้อความสถานะปกติเก่าที่ขัดแย้งออก และยกเลิกการตัดข้อความทิ้งท้าย (...) เพื่อให้ข้อมูลครบถ้วน
  * เพิ่มสไลด์ตาราง Matrix คาดการณ์ยอดขาย (โครงการ x กลุ่มสินค้า) โดยตัดรายการสินค้าและโครงการที่ไม่มี Forecast ออกอัตโนมัติ
  * ดึงตัวกรองช่วงเดือน กลุ่มสินค้า (รวมตัวกรองเฉพาะสินค้าที่เคยเกิด Actual และสินค้าที่กดเพิ่มเอง) และหน่วยแสดงผลแยกอิสระระหว่างกราฟ Forecast (forecastDisplayMode) และตาราง Matrix (matrixDisplayMode)
  * รองรับรายการสินค้าจาก MATERIALNAME (ช่อง O) ของไฟล์ Dealer ที่ไม่มี App Name / Prd Group โดยแสดงเฉพาะค่า Actual (ไม่มี Opp)
@@ -444,7 +444,7 @@ async function prepareSummarizedSiteVisitsForPptx(visits, statusTextEl) {
 
 /**
  * เรียกใช้โมเดล gemini-3.5-flash-lite เพื่อสรุปรวมรายงานหลายรายการของ 1 โครงการ
- * กำชับให้ยุบรวมเรื่องเดียวกันที่อัปเดตซ้ำข้ามสัปดาห์เป็น Bullet สั้นกระชับ ไม่เกินช่องละ 230 ตัวอักษร เพื่อไม่ให้ล้นกรอบสไลด์
+ * กำชับให้ยุบรวมเรื่องเดียวกันที่อัปเดตซ้ำข้ามสัปดาห์เป็น Bullet สั้นกระชับ ตัดข้อความสถานะปกติเก่าที่ขัดแย้งออก และคุมความยาวให้พอดีกรอบสไลด์โดยไม่ตัดใจความสำคัญ
  */
 async function summarizeSingleProjectGroupWithAI(group, combinedImages, apiKey) {
   const allVisitDatesStr = collectAllUniqueVisitDates(group.items);
@@ -467,20 +467,20 @@ async function summarizeSingleProjectGroupWithAI(group, combinedImages, apiKey) 
 
   const promptText = `คุณคือผู้ช่วยวิศวกรและผู้จัดการฝ่ายขายโครงการก่อสร้าง (SCG B2B Sales) จงสังเคราะห์และสรุปรวมรายงานการเข้าเยี่ยมหน้างาน (Site Visit) จำนวน ${group.items.length} รายการต่อไปนี้ ซึ่งอยู่ภายใต้โครงการเดียวกันคือ "${group.projectName}" (${group.projectId || '-'}) ให้รวมเป็นรายงานสรุปฉบับเดียวสำหรับจัดวางลงในสไลด์ PowerPoint 1 หน้า
 
-ข้อกำหนดสำคัญในการเขียนเพื่อไม่ให้ข้อความล้นกรอบสไลด์:
-1. ห้ามนำข้อความของแต่ละสัปดาห์มาต่อกันด้วยเครื่องหมาย "|" ให้ "ยุบรวมเรื่องเดียวกันที่อัปเดตซ้ำข้ามสัปดาห์" โดยยึดสถานะปัจจุบันล่าสุดเป็นหลัก และตัดคำฟุ่มเฟือยออกให้หมด
-2. เขียนเป็นข้อสั้นๆ (ขึ้นต้นแต่ละข้อด้วย "• ") หัวข้อละไม่เกิน 2-3 ข้อ และ "ความยาวแต่ละช่องต้องไม่เกิน 230 ตัวอักษร"
-3. คงตัวเลขสำคัญ ชื่อสินค้า และปริมาณสินค้าไว้ให้ครบถ้วน
+ข้อกำหนดสำคัญในการเขียนเพื่อให้อ่านง่าย กระชับ และพอดีกรอบสไลด์:
+1. ห้ามนำข้อความของแต่ละสัปดาห์มาต่อกันด้วยเครื่องหมาย "|" ให้ "ยุบรวมเรื่องเดียวกันที่อัปเดตซ้ำข้ามสัปดาห์" โดยยึดสถานะล่าสุดเป็นหลัก และตัดคำฟุ่มเฟือย/คำเชื่อมยาวๆ ออก
+2. ในช่อง "issuesAndRisks": หากสัปดาห์เก่าเคยระบุว่า "ไม่มีปัญหา/หน้างานปกติ" แต่สัปดาห์ถัดมามีปัญหาหรือความเสี่ยง ให้ "ตัดข้อความไม่มีปัญหาของสัปดาห์เก่าทิ้งไปเลย" แสดงเฉพาะปัญหาหรือความเสี่ยงที่เกิดขึ้นจริง
+3. เขียนเป็นข้อสั้นๆ (ขึ้นต้นแต่ละข้อด้วย "• ") หัวข้อละ 2-3 ข้อ และ "สรุปให้กระชับอยู่ในช่วง 200-260 ตัวอักษรต่อช่อง" โดยยังเก็บตัวเลขสำคัญ ชื่อสินค้า คู่แข่ง และกำหนดการสำคัญไว้ครบถ้วน
 4. ค่า "riskLevel" ต้องตอบเป็นภาษาอังกฤษคำใดคำหนึ่งเท่านั้น คือ "Low" หรือ "Medium" หรือ "High"
 
 ตอบกลับเป็น JSON Object บริสุทธิ์เท่านั้น ตามโครงสร้างนี้:
 {
   "contractor": "รายชื่อบริษัทผู้รับเหมาทั้งหมดที่เกี่ยวข้อง (คั่นด้วยเครื่องหมายจุลภาค)",
   "visitDate": "ระบุวันที่เข้าตรวจทั้งหมดทุกวันเรียงตามลำดับ คั่นด้วยเครื่องหมายจุลภาค ห้ามย่อเป็นช่วงวันที่",
-  "siteProgress": "สรุปสถานะความคืบหน้าหน้างานและการใช้งานสินค้าล่าสุด (เป็น • Bullet สั้นกระชับ ไม่เกิน 230 ตัวอักษร)",
-  "materialForecast": "สรุปแผนเรียกสินค้าและปริมาณที่ต้องเข้าหน้างาน (เป็น • Bullet สั้นกระชับ ไม่เกิน 230 ตัวอักษร)",
-  "issuesAndRisks": "สรุปปัญหาและความเสี่ยงหน้างานที่ยังค้างอยู่ (หากไม่มีให้ระบุว่า • หน้างานดำเนินไปตามแผนงานปกติ ไม่เกิน 220 ตัวอักษร)",
-  "nextWeekActions": "สรุปสิ่งที่ต้องติดตามต่อ (เป็น • Bullet สั้นกระชับ ไม่เกิน 220 ตัวอักษร)",
+  "siteProgress": "สรุปความคืบหน้าหน้างานและการใช้งานสินค้าล่าสุด (เป็น • Bullet สั้นกระชับ ~220-260 ตัวอักษร)",
+  "materialForecast": "สรุปแผนเรียกสินค้าและปริมาณที่ต้องเข้าหน้างาน (เป็น • Bullet สั้นกระชับ ~200-250 ตัวอักษร)",
+  "issuesAndRisks": "สรุปปัญหาและความเสี่ยงหน้างานที่ยังค้างอยู่ (หากไม่มีเลยให้ระบุ • หน้างานดำเนินไปตามแผนงานปกติ ~200-240 ตัวอักษร)",
+  "nextWeekActions": "สรุปสิ่งที่ต้องติดตามต่อ (เป็น • Bullet สั้นกระชับ ~200-240 ตัวอักษร)",
   "riskLevel": "Low"
 }
 
@@ -538,7 +538,11 @@ ${rawReportsText}`;
     const contractors = uniqueValues(sortedItems.map(it => it.contractor));
     const progressList = uniqueValues(sortedItems.map(it => it.siteProgress));
     const forecastList = uniqueValues(sortedItems.map(it => it.materialForecast));
-    const issuesList = uniqueValues(sortedItems.map(it => it.issuesAndRisks));
+    let issuesList = uniqueValues(sortedItems.map(it => it.issuesAndRisks));
+    if (issuesList.length > 1) {
+      const nonNormalIssues = issuesList.filter(txt => !txt.includes('หน้างานดำเนินไปตามแผนงานปกติ'));
+      if (nonNormalIssues.length > 0) issuesList = nonNormalIssues;
+    }
     const actionsList = uniqueValues(sortedItems.map(it => it.nextWeekActions));
 
     let highestRisk = 'Low';
@@ -550,10 +554,10 @@ ${rawReportsText}`;
       projectName: group.projectName,
       contractor: contractors.join(', ') || '-',
       visitDate: allVisitDatesStr || '-',
-      siteProgress: progressList.join(' | ') || '-',
-      materialForecast: forecastList.join(' | ') || '-',
-      issuesAndRisks: issuesList.join(' | ') || '-',
-      nextWeekActions: actionsList.join(' | ') || '-',
+      siteProgress: progressList.join('\n• ') ? (progressList.length > 1 ? `• ${progressList.join('\n• ')}` : progressList[0]) : '-',
+      materialForecast: forecastList.join('\n• ') ? (forecastList.length > 1 ? `• ${forecastList.join('\n• ')}` : forecastList[0]) : '-',
+      issuesAndRisks: issuesList.join('\n• ') ? (issuesList.length > 1 ? `• ${issuesList.join('\n• ')}` : issuesList[0]) : '-',
+      nextWeekActions: actionsList.join('\n• ') ? (actionsList.length > 1 ? `• ${actionsList.join('\n• ')}` : actionsList[0]) : '-',
       riskLevel: highestRisk,
       images: combinedImages,
       imageData: combinedImages.length > 0 ? combinedImages[0].base64Data : '',
@@ -1776,22 +1780,24 @@ function addKpiSummarySlide(pptx) {
 // ==========================================
 
 /**
- * คำนวณขนาดตัวอักษรและระยะห่างบรรทัดอัตโนมัติให้พอดีกับความสูงของกล่องข้อความ ป้องกันการล้นกรอบ
+ * คำนวณขนาดตัวอักษรและระยะห่างบรรทัดอัตโนมัติให้พอดีกับความสูงของกล่องข้อความ
+ * ยกเลิกการตัดคำทิ้ง (...) เพื่อให้ข้อมูลครบถ้วนทุกตัวอักษร ยอมให้ล้นกรอบได้เล็กน้อยหากยาวมากเพื่อให้ผู้ใช้แก้ไขเองใน PowerPoint
  */
 function calcAutoFitTextLayout(rawText, boxWidthInches, boxHeightInches) {
   const cleanText = String(rawText || '-').replace(/\r\n/g, '\n').trim() || '-';
-  const textAreaH = Math.max(0.55, boxHeightInches - 0.38);
+  const textAreaH = Math.max(0.55, boxHeightInches - 0.36);
 
   // ประมาณจำนวนตัวอักษรต่อ 1 บรรทัดตามความกว้างกล่อง (กรณีมีรูปด้านซ้าย 6.45 นิ้ว หรือเต็มจอ 12.43 นิ้ว)
-  const baseCharsPerLine = boxWidthInches >= 10 ? 118 : 58;
+  const baseCharsPerLine = boxWidthInches >= 10 ? 118 : 60;
 
   const fontSteps = [
-    { size: 9.5, lineHeightIn: 0.185, spacing: 1.15 },
-    { size: 9.0, lineHeightIn: 0.172, spacing: 1.12 },
-    { size: 8.5, lineHeightIn: 0.160, spacing: 1.10 },
-    { size: 8.0, lineHeightIn: 0.148, spacing: 1.08 },
-    { size: 7.5, lineHeightIn: 0.138, spacing: 1.05 },
-    { size: 7.0, lineHeightIn: 0.128, spacing: 1.02 }
+    { size: 9.5, lineHeightIn: 0.182, spacing: 1.12 },
+    { size: 9.0, lineHeightIn: 0.170, spacing: 1.10 },
+    { size: 8.5, lineHeightIn: 0.158, spacing: 1.08 },
+    { size: 8.0, lineHeightIn: 0.146, spacing: 1.05 },
+    { size: 7.5, lineHeightIn: 0.136, spacing: 1.03 },
+    { size: 7.0, lineHeightIn: 0.126, spacing: 1.00 },
+    { size: 6.5, lineHeightIn: 0.118, spacing: 1.00 }
   ];
 
   for (const step of fontSteps) {
@@ -1814,18 +1820,10 @@ function calcAutoFitTextLayout(rawText, boxWidthInches, boxHeightInches) {
     }
   }
 
-  // กรณีข้อความยาวมากแม้ลดฟอนต์เหลือ 7pt แล้ว ให้ตัดส่วนเกินท้ายสุดพร้อมเติม "..." เพื่อไม่ให้ทะลุกรอบล่าง
+  // กรณียังยาวเกินแม้ลดฟอนต์เหลือ 6.5pt แล้ว ให้คงข้อความไว้ทั้งหมด 100% ห้ามตัดทิ้ง เพื่อให้ผู้ใช้ปรับแต่งเองใน PowerPoint ได้ครบ
   const minStep = fontSteps[fontSteps.length - 1];
-  const minCharsPerLine = Math.max(24, Math.floor(baseCharsPerLine * (9.5 / minStep.size)));
-  const maxLines = Math.max(3, Math.floor(textAreaH / minStep.lineHeightIn));
-  const maxSafeChars = Math.max(120, Math.floor(maxLines * minCharsPerLine * 0.9));
-
-  const trimmedText = cleanText.length > maxSafeChars
-    ? cleanText.slice(0, maxSafeChars - 3).trim() + '...'
-    : cleanText;
-
   return {
-    text: trimmedText,
+    text: cleanText,
     fontSize: minStep.size,
     lineSpacingMultiple: minStep.spacing
   };
