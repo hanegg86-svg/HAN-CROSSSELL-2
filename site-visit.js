@@ -1,6 +1,7 @@
 /**
  * Site Visit & Photo Management (site-visit.js)
  * จัดการรูปถ่ายหน้างาน (อัปโหลดตรงทันที ไม่ต้องผ่าน AI พร้อมบีบอัดขนาดไม่เกิน 100 KB ต่อรูป),
+ * ระบบบีบอัดย่อขนาดรูปภาพที่เคยอัปโหลดไปแล้วใน IndexedDB (ไม่เกิน 50 KB / 10 KB),
  * รวมภาพชุดวิเคราะห์ AI ด้วยโมเดล gemini-3.5-flash-lite เป็น 1 รายงานเดียว (ไม่แสดงภาพสแกนเอกสาร),
  * ระบบจัดการรูปภาพประจำแต่ละกล่อง (อัปโหลดรูปหน้างาน, เพิ่มรูป, ลบเฉพาะรูป),
  * ระบบแก้ไขข้อความรายงาน (Edit Modal), ลบรายการเฉพาะกล่อง, Lightbox,
@@ -64,91 +65,342 @@ function updateApiKeyStatusUI() {
 }
 
 // ==========================================
-// ระบบย่อขนาดและบีบอัดรูปภาพให้ไม่เกิน 100 KB ต่อรูป
+// ระบบย่อขนาดและบีบอัดรูปภาพให้ไม่เกินขนาดเป้าหมาย (100 KB / 50 KB / 10 KB)
 // ==========================================
 function getBase64ByteLength(base64Str) {
   if (!base64Str) return 0;
-  const paddingMatch = base64Str.match(/=+$/);
+  const cleanB64 = String(base64Str).replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '');
+  const paddingMatch = cleanB64.match(/=+$/);
   const paddingLen = paddingMatch ? paddingMatch[0].length : 0;
-  return Math.floor((base64Str.length * 3) / 4) - paddingLen;
+  return Math.max(0, Math.floor((cleanB64.length * 3) / 4) - paddingLen);
 }
 
 /**
- * บีบอัดไฟล์รูปภาพด้วย HTML5 Canvas ให้มีขนาดไฟล์จริงไม่เกิน maxKB (ค่าเริ่มต้น 100 KB)
+ * ฟังก์ชันแกนกลางสำหรับบีบอัด Data URL รูปภาพด้วย HTML5 Canvas ให้มีขนาดไม่เกิน maxKB
  * คืนค่า { mimeType: 'image/jpeg', base64Data, sizeBytes }
  */
-function compressImageToMaxKB(file, maxKB = 100) {
+function compressImageDataUrlToMaxKB(dataUrl, maxKB = 100) {
   const maxBytes = maxKB * 1024;
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const origW = img.naturalWidth || img.width || 1280;
+        const origH = img.naturalHeight || img.height || 720;
+
+        // กำหนดความละเอียดเริ่มต้นให้เหมาะสมกับขนาด KB เป้าหมาย
+        let initialCap = 1280;
+        if (maxKB <= 10) {
+          initialCap = 420;
+        } else if (maxKB <= 50) {
+          initialCap = 800;
+        }
+        let maxDim = Math.min(initialCap, Math.max(origW, origH));
+
+        const qualitySteps = maxKB <= 10
+          ? [0.65, 0.55, 0.45, 0.35, 0.25, 0.18, 0.12]
+          : [0.85, 0.75, 0.65, 0.55, 0.45, 0.35, 0.25];
+
+        const minAllowedDim = maxKB <= 10 ? 120 : 200;
+        let bestBase64 = '';
+        let bestBytes = Infinity;
+
+        for (let dimAttempt = 0; dimAttempt < 8; dimAttempt++) {
+          const scale = Math.min(1, maxDim / Math.max(origW, origH));
+          const targetW = Math.max(1, Math.round(origW * scale));
+          const targetH = Math.max(1, Math.round(origH * scale));
+
+          const canvas = document.createElement('canvas');
+          canvas.width = targetW;
+          canvas.height = targetH;
+          const ctx = canvas.getContext('2d');
+
+          // เติมพื้นหลังสีขาวเผื่อกรณีรูปเดิมเป็น PNG พื้นหลังโปร่งใส
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, targetW, targetH);
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0, targetW, targetH);
+
+          for (let q of qualitySteps) {
+            const outDataUrl = canvas.toDataURL('image/jpeg', q);
+            const base64Data = outDataUrl.split(',')[1] || '';
+            const byteSize = getBase64ByteLength(base64Data);
+
+            if (byteSize < bestBytes) {
+              bestBytes = byteSize;
+              bestBase64 = base64Data;
+            }
+
+            if (byteSize <= maxBytes) {
+              resolve({
+                mimeType: 'image/jpeg',
+                base64Data: base64Data,
+                sizeBytes: byteSize
+              });
+              return;
+            }
+          }
+
+          if (maxDim <= minAllowedDim) break;
+          maxDim = Math.max(minAllowedDim, Math.round(maxDim * 0.72));
+        }
+
+        resolve({
+          mimeType: 'image/jpeg',
+          base64Data: bestBase64,
+          sizeBytes: bestBytes
+        });
+      } catch (err) {
+        reject(err);
+      }
+    };
+    img.onerror = (err) => reject(err);
+    img.src = dataUrl;
+  });
+}
+
+/**
+ * บีบอัดไฟล์รูปภาพ (File Object) ให้มีขนาดไฟล์จริงไม่เกิน maxKB
+ */
+function compressImageToMaxKB(file, maxKB = 100) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        try {
-          const origW = img.naturalWidth || img.width || 1280;
-          const origH = img.naturalHeight || img.height || 720;
-          let maxDim = Math.min(1280, Math.max(origW, origH));
-
-          const qualitySteps = [0.85, 0.75, 0.65, 0.55, 0.45, 0.35];
-          let bestBase64 = '';
-          let bestBytes = Infinity;
-
-          for (let dimAttempt = 0; dimAttempt < 6; dimAttempt++) {
-            const scale = Math.min(1, maxDim / Math.max(origW, origH));
-            const targetW = Math.max(1, Math.round(origW * scale));
-            const targetH = Math.max(1, Math.round(origH * scale));
-
-            const canvas = document.createElement('canvas');
-            canvas.width = targetW;
-            canvas.height = targetH;
-            const ctx = canvas.getContext('2d');
-
-            // เติมพื้นหลังสีขาวเผื่อกรณีอัปโหลดไฟล์ PNG พื้นหลังโปร่งใส
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(0, 0, targetW, targetH);
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'high';
-            ctx.drawImage(img, 0, 0, targetW, targetH);
-
-            for (let q of qualitySteps) {
-              const dataUrl = canvas.toDataURL('image/jpeg', q);
-              const base64Data = dataUrl.split(',')[1] || '';
-              const byteSize = getBase64ByteLength(base64Data);
-
-              if (byteSize < bestBytes) {
-                bestBytes = byteSize;
-                bestBase64 = base64Data;
-              }
-
-              if (byteSize <= maxBytes) {
-                resolve({
-                  mimeType: 'image/jpeg',
-                  base64Data: base64Data,
-                  sizeBytes: byteSize
-                });
-                return;
-              }
-            }
-
-            // หากยังเกิน 100 KB ให้ลดความละเอียดด้านยาวสุดลง 25% แล้วบีบอัดซ้ำ
-            maxDim = Math.max(240, Math.round(maxDim * 0.75));
-          }
-
-          resolve({
-            mimeType: 'image/jpeg',
-            base64Data: bestBase64,
-            sizeBytes: bestBytes
-          });
-        } catch (err) {
-          reject(err);
-        }
-      };
-      img.onerror = (err) => reject(err);
-      img.src = event.target.result;
+      compressImageDataUrlToMaxKB(event.target.result, maxKB)
+        .then(resolve)
+        .catch(reject);
     };
     reader.onerror = (err) => reject(err);
     reader.readAsDataURL(file);
   });
+}
+
+/**
+ * บีบอัดข้อมูลรูปภาพ Base64 ที่เก็บอยู่ในระบบแล้วให้ไม่เกิน maxKB (เช่น 50 KB หรือ 10 KB)
+ */
+function compressBase64ImageToMaxKB(base64Data, mimeType = 'image/jpeg', maxKB = 50) {
+  const cleanB64 = String(base64Data || '').replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '');
+  const dataUrl = `data:${mimeType || 'image/jpeg'};base64,${cleanB64}`;
+  return compressImageDataUrlToMaxKB(dataUrl, maxKB);
+}
+
+// ==========================================
+// Modal & ระบบบีบอัดย่อขนาดรูปภาพที่เคยอัปโหลดไปแล้ว (≤ 50 KB / ≤ 10 KB)
+// ==========================================
+function formatByteSizeLabel(bytes) {
+  if (!bytes || bytes <= 0) return '0 KB';
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  }
+  return `${(bytes / 1024).toFixed(1)} KB`;
+}
+
+function getTargetSiteVisitsForCompression(allVisits, scope) {
+  const list = Array.isArray(allVisits) ? allVisits : [];
+  if (scope === 'current_project' && selectedMasterProject !== 'all') {
+    const proj = projectsMapGlobal[selectedMasterProject];
+    return list.filter(v =>
+      v.projectId === selectedMasterProject ||
+      v.projectName === selectedMasterProject ||
+      (proj && (v.projectId === proj.id || v.projectName === proj.name))
+    );
+  }
+  return list;
+}
+
+async function openCompressExistingPhotosModal() {
+  const modal = document.getElementById('compressPhotosModal');
+  if (!modal) return;
+
+  const scopeSelect = document.getElementById('compressScopeSelect');
+  if (scopeSelect) {
+    const currentProjOpt = scopeSelect.querySelector('option[value="current_project"]');
+    if (selectedMasterProject !== 'all') {
+      const proj = projectsMapGlobal[selectedMasterProject];
+      const projName = proj ? proj.name : selectedMasterProject;
+      if (currentProjOpt) {
+        currentProjOpt.disabled = false;
+        currentProjOpt.textContent = `เฉพาะโครงการที่เลือก (${projName})`;
+      }
+      scopeSelect.value = 'current_project';
+    } else {
+      if (currentProjOpt) {
+        currentProjOpt.disabled = true;
+        currentProjOpt.textContent = 'เฉพาะโครงการที่เลือก (กรุณาเลือกโครงการด้านบนก่อน)';
+      }
+      scopeSelect.value = 'all';
+    }
+  }
+
+  const progressContainer = document.getElementById('compressProgressContainer');
+  if (progressContainer) progressContainer.classList.add('hidden');
+
+  await updateCompressPhotosModalStats();
+  modal.classList.remove('hidden');
+}
+
+function closeCompressExistingPhotosModal() {
+  const modal = document.getElementById('compressPhotosModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+async function updateCompressPhotosModalStats() {
+  const countEl = document.getElementById('compressTotalPhotosStat');
+  const sizeEl = document.getElementById('compressTotalSizeStat');
+  const scope = document.getElementById('compressScopeSelect')?.value || 'all';
+
+  try {
+    if (!db && typeof initIndexedDB === 'function') await initIndexedDB();
+    const allVisits = await dbGetAll('site_visits');
+    const targetVisits = getTargetSiteVisitsForCompression(allVisits, scope);
+
+    let totalPhotos = 0;
+    let totalBytes = 0;
+
+    targetVisits.forEach(visit => {
+      const imgs = (Array.isArray(visit.images) && visit.images.length > 0)
+        ? visit.images
+        : (visit.imageData ? [{ base64Data: visit.imageData, mimeType: visit.mimeType || 'image/jpeg' }] : []);
+
+      imgs.forEach(imgObj => {
+        if (imgObj && imgObj.base64Data) {
+          totalPhotos++;
+          totalBytes += getBase64ByteLength(imgObj.base64Data);
+        }
+      });
+    });
+
+    if (countEl) countEl.textContent = `${totalPhotos.toLocaleString()} รูป (จาก ${targetVisits.length} รายการ)`;
+    if (sizeEl) sizeEl.textContent = formatByteSizeLabel(totalBytes);
+  } catch (err) {
+    console.error('Error calculating photo stats:', err);
+  }
+}
+
+async function executeCompressExistingPhotos() {
+  const targetRadio = document.querySelector('input[name="compressTargetKB"]:checked');
+  const targetKB = targetRadio ? parseInt(targetRadio.value, 10) : 50;
+  const maxAllowedBytes = targetKB * 1024;
+  const scope = document.getElementById('compressScopeSelect')?.value || 'all';
+
+  const progressContainer = document.getElementById('compressProgressContainer');
+  const progressText = document.getElementById('compressProgressText');
+  const progressPercent = document.getElementById('compressProgressPercent');
+  const progressFill = document.getElementById('compressProgressFill');
+  const execBtn = document.getElementById('executeCompressPhotosBtn');
+
+  try {
+    if (!db && typeof initIndexedDB === 'function') await initIndexedDB();
+    const allVisits = await dbGetAll('site_visits');
+    const targetVisits = getTargetSiteVisitsForCompression(allVisits, scope);
+
+    let totalPhotos = 0;
+    targetVisits.forEach(v => {
+      const imgs = (Array.isArray(v.images) && v.images.length > 0)
+        ? v.images
+        : (v.imageData ? [{ base64Data: v.imageData }] : []);
+      totalPhotos += imgs.filter(img => img && img.base64Data).length;
+    });
+
+    if (totalPhotos === 0) {
+      alert('ไม่พบรูปภาพในขอบเขตที่เลือก');
+      return;
+    }
+
+    const ok = confirm(
+      `ยืนยันการบีบอัดย่อขนาดรูปภาพเดิม?\n` +
+      `• จำนวนรูปที่ตรวจสอบ: ${totalPhotos.toLocaleString()} รูป\n` +
+      `• ขนาดไฟล์สูงสุดเป้าหมาย: ไม่เกิน ${targetKB} KB ต่อรูป\n\n` +
+      `ℹ️ รูปภาพที่มีขนาดเล็กกว่า ${targetKB} KB อยู่แล้วจะถูกข้ามโดยอัตโนมัติ`
+    );
+    if (!ok) return;
+
+    if (progressContainer) progressContainer.classList.remove('hidden');
+    if (execBtn) execBtn.disabled = true;
+
+    let processedCount = 0;
+    let compressedCount = 0;
+    let bytesBefore = 0;
+    let bytesAfter = 0;
+
+    for (const visit of targetVisits) {
+      let imgs = (Array.isArray(visit.images) && visit.images.length > 0)
+        ? visit.images
+        : (visit.imageData ? [{ base64Data: visit.imageData, mimeType: visit.mimeType || 'image/jpeg' }] : []);
+
+      if (imgs.length === 0) continue;
+
+      let visitModified = false;
+      const updatedImages = [];
+
+      for (const imgObj of imgs) {
+        if (!imgObj || !imgObj.base64Data) continue;
+
+        processedCount++;
+        const pct = Math.round((processedCount / totalPhotos) * 100);
+        if (progressText) progressText.textContent = `กำลังประมวลผลรูปที่ ${processedCount} / ${totalPhotos} (เป้าหมาย ≤ ${targetKB} KB)...`;
+        if (progressPercent) progressPercent.textContent = `${pct}%`;
+        if (progressFill) progressFill.style.width = `${pct}%`;
+
+        const cleanB64 = String(imgObj.base64Data).replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '');
+        const origBytes = getBase64ByteLength(cleanB64);
+        bytesBefore += origBytes;
+
+        if (origBytes > maxAllowedBytes) {
+          try {
+            const compressed = await compressBase64ImageToMaxKB(cleanB64, imgObj.mimeType || 'image/jpeg', targetKB);
+            if (compressed && compressed.base64Data && compressed.sizeBytes < origBytes) {
+              updatedImages.push({
+                base64Data: compressed.base64Data,
+                mimeType: compressed.mimeType
+              });
+              bytesAfter += compressed.sizeBytes;
+              compressedCount++;
+              visitModified = true;
+            } else {
+              updatedImages.push({ base64Data: cleanB64, mimeType: imgObj.mimeType || 'image/jpeg' });
+              bytesAfter += origBytes;
+            }
+          } catch (imgErr) {
+            console.error('Failed to compress existing photo:', imgErr);
+            updatedImages.push({ base64Data: cleanB64, mimeType: imgObj.mimeType || 'image/jpeg' });
+            bytesAfter += origBytes;
+          }
+        } else {
+          updatedImages.push({ base64Data: cleanB64, mimeType: imgObj.mimeType || 'image/jpeg' });
+          bytesAfter += origBytes;
+        }
+      }
+
+      if (visitModified) {
+        visit.images = updatedImages;
+        visit.imageData = updatedImages.length > 0 ? updatedImages[0].base64Data : '';
+        visit.mimeType = updatedImages.length > 0 ? updatedImages[0].mimeType : '';
+        await dbSave('site_visits', visit);
+      }
+    }
+
+    await loadSiteVisitLogsFromDB();
+    await updateCompressPhotosModalStats();
+
+    const savedBytes = Math.max(0, bytesBefore - bytesAfter);
+    alert(
+      `ย่อขนาดรูปภาพเรียบร้อยแล้ว!\n` +
+      `• รูปที่ถูกบีบอัดใหม่: ${compressedCount} จาก ${totalPhotos} รูป (≤ ${targetKB} KB)\n` +
+      `• ขนาดรวมก่อนทำ: ${formatByteSizeLabel(bytesBefore)}\n` +
+      `• ขนาดรวมหลังทำ: ${formatByteSizeLabel(bytesAfter)}\n` +
+      `• ประหยัดพื้นที่ได้: ${formatByteSizeLabel(savedBytes)}`
+    );
+
+    closeCompressExistingPhotosModal();
+  } catch (err) {
+    console.error('Execute compress existing photos error:', err);
+    alert('เกิดข้อผิดพลาดระหว่างการย่อขนาดรูปภาพ: ' + err.message);
+  } finally {
+    if (progressContainer) progressContainer.classList.add('hidden');
+    if (execBtn) execBtn.disabled = false;
+  }
 }
 
 // ==========================================
@@ -898,3 +1150,8 @@ async function clearSiteVisitData() {
   renderWeeklySiteVisitDashboard();
   alert('ล้างข้อมูลเรียบร้อยแล้ว');
 }
+
+window.openCompressExistingPhotosModal = openCompressExistingPhotosModal;
+window.closeCompressExistingPhotosModal = closeCompressExistingPhotosModal;
+window.updateCompressPhotosModalStats = updateCompressPhotosModalStats;
+window.executeCompressExistingPhotos = executeCompressExistingPhotos;

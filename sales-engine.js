@@ -9,7 +9,7 @@
  * 5. เชื่อมตัวกรองรายงาน Weekly แบบเลือกได้ 1 เดือนหรือหลายเดือน (Multi-Select Month Filter) เข้ากับปุ่มใน Section 1 และ Modal Export
  * 6. เพิ่มระบบ "ตารางพักรายการเตรียม Export (Export Staging Table)" และระบบ AI สรุป 2 โหมด (สรุปรวมเป็น 1 แถว / สรุปแยกตามรายโครงการ) ด้วย gemini-3.5-flash-lite
  * 7. รองรับเมนูพับเก็บได้บนหน้าจอมือถือ (toggleMobileHeaderTools)
- * 8. รองรับตัวกรองย่อยสำหรับสลับหน่วยแสดงผล (บาท / หน่วยสินค้า) และตัวกรองเฉพาะสินค้าที่เคยเกิด Actual (Dealer) ในส่วน Sales Forecast
+ * 8. รองรับตัวกรองย่อยสำหรับสลับหน่วยแสดงผล (บาท / หน่วยสินค้า) แยกอิสระระหว่างกราฟ Sales Forecast และตาราง Matrix คาดการณ์ยอดขาย รวมถึงตัวกรองเฉพาะสินค้าที่เคยเกิด Actual (Dealer)
  * 9. ใช้ตารางราคาต่อหน่วยเฉพาะจากไฟล์ราคา CSV ที่อัปโหลดเท่านั้น (ไม่ใช้ราคาฝังในโค้ด)
  * 10. ซิงค์รายการสินค้าจาก MATERIALNAME (ช่อง O) ของไฟล์ Dealer เข้ากับตัวกรองกราฟเปรียบเทียบเสมอ
  */
@@ -443,7 +443,7 @@ function processSalesCSV(rows) {
 
   const banner = document.getElementById('missingPriceBanner');
   const missingList = document.getElementById('missingList');
-  if (missingPriceProducts.size > 0 && (displayMode === 'baht' || forecastDisplayMode === 'baht')) {
+  if (missingPriceProducts.size > 0 && (displayMode === 'baht' || forecastDisplayMode === 'baht' || matrixDisplayMode === 'baht')) {
     document.getElementById('missingCount').textContent = missingPriceProducts.size;
     missingList.innerHTML = Array.from(missingPriceProducts).map(item => `
       <span class="bg-amber-100 text-amber-900 border border-amber-300 text-[11px] font-medium px-2 py-0.5 rounded-md">
@@ -3022,6 +3022,7 @@ async function initializeSalesEngineApp() {
   const dealerFileInput = document.getElementById('dealerFileInput');
   const unitDisplayModeSelect = document.getElementById('unitDisplayModeSelect');
   const forecastUnitDisplayModeSelect = document.getElementById('forecastUnitDisplayModeSelect');
+  const matrixUnitDisplayModeSelect = document.getElementById('matrixUnitDisplayModeSelect');
   const forecastOnlyDealerActualCheckbox = document.getElementById('forecastOnlyDealerActualCheckbox');
 
   if (dropZone && salesFileInput) {
@@ -3084,7 +3085,7 @@ async function initializeSalesEngineApp() {
     });
   }
 
-  // Filter ย่อยสำหรับสลับหน่วยแสดงผลเฉพาะส่วน Sales Forecast (บาท / หน่วยสินค้า)
+  // Filter ย่อยสำหรับสลับหน่วยแสดงผลเฉพาะกราฟ Sales Forecast (บาท / หน่วยสินค้า)
   if (forecastUnitDisplayModeSelect) {
     forecastUnitDisplayModeSelect.value = forecastDisplayMode;
     forecastUnitDisplayModeSelect.addEventListener('change', (e) => {
@@ -3092,6 +3093,14 @@ async function initializeSalesEngineApp() {
       updateUIUnitLabels();
       updateForecastProductChart();
       updateForecastProjectChart();
+    });
+  }
+
+  // Filter ย่อยสำหรับสลับหน่วยแสดงผลเฉพาะตาราง Matrix คาดการณ์ยอดขาย (บาท / หน่วยสินค้า)
+  if (matrixUnitDisplayModeSelect) {
+    matrixUnitDisplayModeSelect.value = matrixDisplayMode;
+    matrixUnitDisplayModeSelect.addEventListener('change', (e) => {
+      matrixDisplayMode = e.target.value;
       updateForecastMatrix();
     });
   }

@@ -289,6 +289,12 @@
               <svg class="w-3.5 h-3.5 text-sky-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
               คัดลอกสรุปส่ง LINE
             </button>
+
+            <!-- ปุ่มบีบอัดย่อขนาดรูปภาพที่เคยอัปโหลดไปแล้ว (≤ 50 KB / ≤ 10 KB) -->
+            <button type="button" onclick="openCompressExistingPhotosModal()" class="inline-flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm transition-all">
+              <span>🗜️</span> ย่อขนาดรูปเดิม
+            </button>
+
             <button onclick="clearSiteVisitData()" class="inline-flex items-center gap-1 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 text-xs font-semibold px-2.5 py-1.5 rounded-lg shadow-sm transition-all">
               <span>🗑️</span> ล้างทั้งหมด
             </button>
@@ -485,9 +491,9 @@
               <span id="forecastDealerActualCountBadge" class="bg-emerald-600 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full">0</span>
             </label>
 
-            <!-- Filter ย่อย: หน่วยแสดงผลเฉพาะส่วน Sales Forecast -->
+            <!-- Filter ย่อย: หน่วยแสดงผลเฉพาะกราฟ Sales Forecast -->
             <div class="inline-flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm">
-              <span class="text-indigo-900">📊 หน่วย Forecast:</span>
+              <span class="text-indigo-900">📊 หน่วยกราฟ Forecast:</span>
               <select id="forecastUnitDisplayModeSelect" class="bg-white text-indigo-700 font-bold px-2 py-0.5 rounded border border-indigo-300 focus:outline-none cursor-pointer">
                 <option value="baht">มูลค่า (บาท)</option>
                 <option value="unit">ปริมาณ (หน่วยสินค้า)</option>
@@ -569,10 +575,19 @@
                 <span>📑</span> ตาราง Matrix คาดการณ์ยอดขาย (โครงการ x กลุ่มสินค้า)
               </h3>
               <p class="text-xs text-indigo-700 mt-0.5">
-                แกนตั้งคือรายชื่อโครงการ และแกนนอนคือกลุ่มสินค้า (Column E)
+                แกนตั้งคือรายชื่อโครงการ และแกนนอนคือกลุ่มสินค้า (Column E) — ปรับหน่วยแสดงผลแยกจากกราฟได้อิสระ
               </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
+              <!-- ตัวเลือกหน่วยแสดงผลแยกอิสระเฉพาะตาราง Matrix -->
+              <div class="inline-flex items-center gap-1.5 bg-white border border-indigo-200 px-2.5 py-1.5 rounded-lg text-xs font-semibold shadow-sm">
+                <span class="text-indigo-900">📊 หน่วยตาราง:</span>
+                <select id="matrixUnitDisplayModeSelect" class="bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded border border-indigo-300 focus:outline-none cursor-pointer">
+                  <option value="baht">มูลค่า (บาท)</option>
+                  <option value="unit">ปริมาณ (หน่วยสินค้า)</option>
+                </select>
+              </div>
+
               <div class="flex items-center gap-1.5 bg-white border border-indigo-200 px-3 py-1.5 rounded-lg text-xs shadow-sm">
                 <span class="text-slate-600 font-medium">เลือกเดือน:</span>
                 <select id="matrixMonthSelect" class="bg-white text-indigo-700 font-bold focus:outline-none"></select>
@@ -1418,6 +1433,89 @@
       <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end shrink-0">
         <button onclick="closePptxExportModal()" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded-lg transition-colors">
           ปิดหน้าต่าง
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 11: Compress Existing Photos Modal (บีบอัดย่อขนาดรูปภาพที่เคยอัปโหลดไปแล้ว ≤ 50 KB / ≤ 10 KB) -->
+  <div id="compressPhotosModal" onclick="if(event.target === this) closeCompressExistingPhotosModal()" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-100">
+      <div class="p-5 border-b border-amber-100 bg-amber-50/80 flex justify-between items-center">
+        <div class="flex items-center gap-2">
+          <span class="text-xl">🗜️</span>
+          <div>
+            <h3 class="text-base font-bold text-amber-950">บีบอัดย่อขนาดรูปภาพเดิมในระบบ</h3>
+            <p class="text-xs text-amber-700">ลดขนาดพื้นที่จัดเก็บใน IndexedDB และไฟล์ Backup JSON</p>
+          </div>
+        </div>
+        <button onclick="closeCompressExistingPhotosModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-full">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <div class="p-5 space-y-4 text-xs">
+        <!-- สถิติรูปภาพปัจจุบัน -->
+        <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5">
+          <div class="flex justify-between items-center">
+            <span class="text-slate-500 font-medium">จำนวนรูปภาพทั้งหมดในระบบ:</span>
+            <span id="compressTotalPhotosStat" class="font-bold text-slate-800">0 รูป</span>
+          </div>
+          <div class="flex justify-between items-center">
+            <span class="text-slate-500 font-medium">ขนาดพื้นที่รวมปัจจุบัน:</span>
+            <span id="compressTotalSizeStat" class="font-bold text-indigo-700">0 KB</span>
+          </div>
+        </div>
+
+        <!-- เลือกขอบเขตการย่อรูป -->
+        <div class="space-y-1.5">
+          <label class="block font-bold text-slate-700">1. ขอบเขตข้อมูลที่ต้องการย่อขนาด:</label>
+          <select id="compressScopeSelect" onchange="updateCompressPhotosModalStats()" class="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-amber-500">
+            <option value="all">ทุกรูปภาพทั้งหมดในระบบ (All Projects)</option>
+            <option value="current_project">เฉพาะโครงการที่เลือกอยู่ด้านบน</option>
+          </select>
+        </div>
+
+        <!-- เลือกระดับขนาดไฟล์สูงสุด 2 แบบ -->
+        <div class="space-y-2">
+          <label class="block font-bold text-slate-700">2. เลือกขนาดไฟล์สูงสุดต่อรูป (2 ระดับ):</label>
+          <div class="grid grid-cols-2 gap-2.5">
+            <label class="p-3 rounded-xl border-2 border-amber-300 bg-amber-50/40 hover:bg-amber-50 cursor-pointer transition-all flex items-start gap-2">
+              <input type="radio" name="compressTargetKB" value="50" checked class="mt-0.5 text-amber-600 focus:ring-amber-500">
+              <div>
+                <div class="font-bold text-amber-950 text-sm">ไม่เกิน 50 KB</div>
+                <div class="text-[11px] text-amber-800 mt-0.5 leading-snug">สมดุล ชัดเจน อ่านรายละเอียดบนสไลด์ได้ดี</div>
+              </div>
+            </label>
+
+            <label class="p-3 rounded-xl border-2 border-slate-200 hover:border-rose-300 bg-slate-50/60 hover:bg-rose-50/40 cursor-pointer transition-all flex items-start gap-2">
+              <input type="radio" name="compressTargetKB" value="10" class="mt-0.5 text-rose-600 focus:ring-rose-500">
+              <div>
+                <div class="font-bold text-slate-900 text-sm">ไม่เกิน 10 KB</div>
+                <div class="text-[11px] text-slate-600 mt-0.5 leading-snug">ประหยัดพื้นที่สูงสุด ไฟล์เล็กมาก</div>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Progress Bar ระหว่างย่อรูป -->
+        <div id="compressProgressContainer" class="hidden p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 space-y-2">
+          <div class="flex justify-between items-center font-semibold">
+            <span id="compressProgressText">กำลังบีบอัดรูปภาพ...</span>
+            <span id="compressProgressPercent">0%</span>
+          </div>
+          <div class="w-full bg-amber-200 rounded-full h-1.5 overflow-hidden">
+            <div id="compressProgressFill" class="bg-amber-600 h-1.5 rounded-full transition-all duration-200" style="width: 0%"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
+        <button type="button" onclick="closeCompressExistingPhotosModal()" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded-lg transition-colors">
+          ปิดหน้าต่าง
+        </button>
+        <button id="executeCompressPhotosBtn" type="button" onclick="executeCompressExistingPhotos()" class="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-1.5">
+          <span>🗜️</span> เริ่มย่อขนาดรูปภาพ
         </button>
       </div>
     </div>

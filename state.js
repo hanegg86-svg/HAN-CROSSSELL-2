@@ -12,7 +12,8 @@ let projectMergeRules = []; // กฎการรวมโครงการ: [{
 let unitPrices = {};
 
 let displayMode = 'baht';
-let forecastDisplayMode = 'baht'; // หน่วยแสดงผลแยกเฉพาะส่วน Sales Forecast ('baht' | 'unit')
+let forecastDisplayMode = 'baht'; // หน่วยแสดงผลแยกเฉพาะกราฟ Sales Forecast ('baht' | 'unit')
+let matrixDisplayMode = 'baht';   // หน่วยแสดงผลแยกเฉพาะตาราง Matrix คาดการณ์ยอดขาย ('baht' | 'unit')
 let forecastOnlyDealerActual = false; // ตัวกรองเฉพาะสินค้าที่เคยเกิด Actual ในไฟล์ Dealer
 let dealerActualProductGroupsSet = new Set(); // รายชื่อกลุ่มสินค้าที่เคยมี Actual ในไฟล์ Dealer
 let manualAddedForecastProducts = new Set(); // สินค้าที่ไม่มี Actual แต่ผู้ใช้กดเพิ่มเอง
@@ -203,6 +204,10 @@ function getUnitSuffix() {
 
 function getForecastUnitSuffix() {
   return forecastDisplayMode === 'baht' ? 'บาท' : 'Unit';
+}
+
+function getMatrixUnitSuffix() {
+  return matrixDisplayMode === 'baht' ? 'บาท' : 'Unit';
 }
 
 function readFileWithEncodingDetection(file, callback) {

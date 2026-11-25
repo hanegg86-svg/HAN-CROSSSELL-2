@@ -7,7 +7,7 @@
  * แสดงวันที่เข้าตรวจครบทุกวันจากรายงานย่อยทั้งหมดในโครงการ (ไม่ย่อเป็นช่วงวันที่)
  * เพิ่มระบบสรุปแบบกระชับ (Bullet + ยึดสถานะล่าสุด + จำกัดความยาวตัวอักษร) และ Auto-Fit Font Size ป้องกันข้อความล้นกรอบสไลด์
  * เพิ่มสไลด์ตาราง Matrix คาดการณ์ยอดขาย (โครงการ x กลุ่มสินค้า) โดยตัดรายการสินค้าและโครงการที่ไม่มี Forecast ออกอัตโนมัติ
- * ดึงตัวกรองช่วงเดือน กลุ่มสินค้า (รวมตัวกรองเฉพาะสินค้าที่เคยเกิด Actual และสินค้าที่กดเพิ่มเอง) และหน่วยแสดงผลแยกเฉพาะส่วน Sales Forecast มาสร้างกราฟและตารางอย่างแม่นำ
+ * ดึงตัวกรองช่วงเดือน กลุ่มสินค้า (รวมตัวกรองเฉพาะสินค้าที่เคยเกิด Actual และสินค้าที่กดเพิ่มเอง) และหน่วยแสดงผลแยกอิสระระหว่างกราฟ Forecast (forecastDisplayMode) และตาราง Matrix (matrixDisplayMode)
  * รองรับรายการสินค้าจาก MATERIALNAME (ช่อง O) ของไฟล์ Dealer ที่ไม่มี App Name / Prd Group โดยแสดงเฉพาะค่า Actual (ไม่มี Opp)
  * หน้าสรุป KPI และตาราง Top Projects ดึงยอดขายจริงทั้งหมด (Actual) จากไฟล์ Dealer ตามโครงการและช่วงเวลาที่เลือก (รวมสินค้าที่ไม่มี Opp เช่น Post Plus)
  */
@@ -647,14 +647,14 @@ function collectAvailableChartConfigs() {
 }
 
 /**
- * คำนวณข้อมูลตาราง Matrix คาดการณ์ยอดขาย (โครงการ x กลุ่มสินค้า) ตามโครงการ กลุ่มสินค้า และหน่วยของส่วน Sales Forecast ที่เลือก
+ * คำนวณข้อมูลตาราง Matrix คาดการณ์ยอดขาย (โครงการ x กลุ่มสินค้า) ตามโครงการ กลุ่มสินค้า และหน่วยของส่วนตาราง Matrix ที่เลือก (matrixDisplayMode)
  * และตัดรายการสินค้าและโครงการที่ไม่มี Forecast (ยอด <= 0) ออกทั้งหมด
  */
 function computeForecastMatrixForPptx() {
   if (!Array.isArray(parsedDataRowsGlobal) || parsedDataRowsGlobal.length === 0) return null;
   if (!Array.isArray(availableForecastMonths) || availableForecastMonths.length === 0) return null;
 
-  const activeForecastMode = typeof forecastDisplayMode !== 'undefined' ? forecastDisplayMode : displayMode;
+  const activeMatrixMode = typeof matrixDisplayMode !== 'undefined' ? matrixDisplayMode : displayMode;
   const mMonth = document.getElementById('matrixMonthSelect');
   const rawIdx = mMonth ? parseInt(mMonth.value, 10) : NaN;
   const selectedMonthIdx = !Number.isNaN(rawIdx) ? rawIdx : 0;
@@ -679,7 +679,7 @@ function computeForecastMatrixForPptx() {
 
     const unitPrice = getUnitPrice(productGroup);
     const fUnit = parseNum(row[targetMonth.roppCol]);
-    const fVal = activeForecastMode === 'baht' ? (fUnit * unitPrice) : fUnit;
+    const fVal = activeMatrixMode === 'baht' ? (fUnit * unitPrice) : fUnit;
 
     if (fVal > 0) {
       if (!matrix[projectKey]) {
@@ -732,7 +732,7 @@ function addForecastMatrixSlides(pptx) {
   const matrixData = computeForecastMatrixForPptx();
   if (!matrixData) return;
 
-  const unitText = typeof getForecastUnitSuffix === 'function' ? getForecastUnitSuffix() : getUnitSuffix();
+  const unitText = typeof getMatrixUnitSuffix === 'function' ? getMatrixUnitSuffix() : getUnitSuffix();
   const actualFilterNote = getForecastActualFilterNote();
   const MAX_COLS_PER_SLIDE = 6;
   const MAX_ROWS_PER_SLIDE = 10;
@@ -1332,9 +1332,12 @@ function getCurrentFilterMetadataText() {
   const mainUnit = displayMode === 'baht' ? 'บาท' : 'Unit';
   const fMode = typeof forecastDisplayMode !== 'undefined' ? forecastDisplayMode : displayMode;
   const fUnit = fMode === 'baht' ? 'บาท' : 'Unit';
-  const unitLabel = mainUnit === fUnit
+  const mMode = typeof matrixDisplayMode !== 'undefined' ? matrixDisplayMode : displayMode;
+  const mUnit = mMode === 'baht' ? 'บาท' : 'Unit';
+
+  const unitLabel = (mainUnit === fUnit && mainUnit === mUnit)
     ? (mainUnit === 'บาท' ? 'มูลค่า (บาท)' : 'ปริมาณ (Unit)')
-    : `หลัก: ${mainUnit} | Forecast: ${fUnit}`;
+    : `หลัก: ${mainUnit} | กราฟ Forecast: ${fUnit} | ตาราง Matrix: ${mUnit}`;
   const dateLabel = new Date().toLocaleDateString('th-TH', {
     year: 'numeric',
     month: 'long',

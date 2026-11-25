@@ -3,7 +3,7 @@
  * จัดการโมดูลการคาดการณ์ยอดขายล่วงหน้า (Ropp) กราฟสินค้า/โครงการ และตาราง Matrix
  * ปรับปรุง:
  * 1. คงค่าเดือนที่เลือกไว้เดิมเมื่อสลับหน่วยแสดงผล (ไม่ Reset)
- * 2. แยกหน่วยแสดงผล (forecastDisplayMode: บาท / หน่วยสินค้า) อิสระจากตัวกรองหลักของแอป
+ * 2. แยกหน่วยแสดงผลกราฟ Forecast (forecastDisplayMode) และหน่วยแสดงผลตาราง Matrix (matrixDisplayMode) ออกจากกันอย่างอิสระ
  * 3. รองรับตัวกรอง "เฉพาะสินค้าที่เคยเกิด Actual (Dealer)" และสามารถกดติ๊กเพิ่ม/ลดสินค้าอื่นเองได้ใน Dropdown
  */
 
@@ -105,10 +105,14 @@ function initForecastControls() {
   const fSingle = document.getElementById('forecastProjectSingleMonthSelect');
   const mMonth = document.getElementById('matrixMonthSelect');
   const fUnitSelect = document.getElementById('forecastUnitDisplayModeSelect');
+  const mUnitSelect = document.getElementById('matrixUnitDisplayModeSelect');
   const fOnlyActualCb = document.getElementById('forecastOnlyDealerActualCheckbox');
 
   if (fUnitSelect) {
     fUnitSelect.value = forecastDisplayMode;
+  }
+  if (mUnitSelect) {
+    mUnitSelect.value = matrixDisplayMode;
   }
   if (fOnlyActualCb) {
     fOnlyActualCb.checked = Boolean(forecastOnlyDealerActual);
@@ -483,7 +487,8 @@ function updateForecastMatrix() {
 
     const unitPrice = getUnitPrice(productGroup);
     const fUnit = parseNum(row[targetMonth.roppCol]);
-    const fVal = forecastDisplayMode === 'baht' ? (fUnit * unitPrice) : fUnit;
+    // ใช้หน่วยแสดงผลแยกเฉพาะตาราง Matrix (matrixDisplayMode)
+    const fVal = matrixDisplayMode === 'baht' ? (fUnit * unitPrice) : fUnit;
 
     if (!matrix[projectName]) {
       matrix[projectName] = {};
@@ -528,7 +533,7 @@ function renderForecastMatrixTable() {
   const searchTerm = (document.getElementById('matrixSearchInput')?.value || '').toLowerCase().trim();
 
   const { projects, products, matrix, productTotals, grandTotal } = currentMatrixData;
-  const unitSuffix = getForecastUnitSuffix();
+  const unitSuffix = getMatrixUnitSuffix();
 
   if (!projects || projects.length === 0 || products.length === 0) {
     thead.innerHTML = `<tr><th class="py-3 px-4">โครงการ / สินค้า</th></tr>`;
@@ -595,7 +600,7 @@ function exportForecastMatrixToExcel() {
     alert('ไม่มีข้อมูลสำหรับ Export');
     return;
   }
-  const unitSuffix = getForecastUnitSuffix();
+  const unitSuffix = getMatrixUnitSuffix();
   const excelData = projects.map(p => {
     const row = {
       "รหัสโครงการ": p.code || '-',
@@ -607,7 +612,7 @@ function exportForecastMatrixToExcel() {
     });
     return row;
   });
-  downloadExcel(excelData, `Forecast_Matrix_${monthName || 'Month'}_${forecastDisplayMode}`, 'Matrix');
+  downloadExcel(excelData, `Forecast_Matrix_${monthName || 'Month'}_${matrixDisplayMode}`, 'Matrix');
 }
 
 window.refreshDealerActualForecastSelection = refreshDealerActualForecastSelection;
