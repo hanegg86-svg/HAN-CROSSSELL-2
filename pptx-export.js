@@ -3,7 +3,7 @@
  * สร้างไฟล์ PowerPoint (.pptx) ด้วย PptxGenJS แบบ Widescreen 16:9
  * รองรับการเลือกโครงการแบบ Multi-Select (1 โครงการ, หลายโครงการ หรือทั้งหมด)
  * ตัดชื่อโครงการที่ยาวเกิน 20 ตัวอักษรเหลือ 20 ตัวอักษรในหัวข้อสไลด์เพื่อไม่ให้ล้นขอบ
- * รองรับหน้าสรุปรวม Site Visit ทั้งหมดใน 1 หน้า (Executive One-Page Summary) ก่อนเข้าสู่หน้ารายละเอียดรายโครงการ
+ * รองรับหน้าสรุปรวม Site Visit ทั้งหมดใน 1 หน้า (Executive One-Page Summary) แสดงตารางรายโครงการ + สินค้าที่เกี่ยวข้อง + สรุปสาระสำคัญของแต่ละสินค้า
  * รองรับตัวเลือก AI (gemini-3.5-flash-lite) สรุปรวม Site Report รายโครงการให้เหลือ 1 หน้าสไลด์เฉพาะตอนสร้างไฟล์ PPTX
  * แสดงวันที่เข้าตรวจครบทุกวันจากรายงานย่อยทั้งหมดในโครงการ (ไม่ย่อเป็นช่วงวันที่)
  * ปรับปรุงระบบสรุปด้วย AI ให้กระชับ ตัดข้อความซ้ำซ้อนและข้อความสถานะปกติเก่าที่ขัดแย้งออก และยกเลิกการตัดข้อความทิ้งท้าย (...) เพื่อให้ข้อมูลครบถ้วน
@@ -570,8 +570,68 @@ ${rawReportsText}`;
 }
 
 /**
+ * Fallback สกัดชื่อสินค้าที่เกี่ยวข้องและสรุปสาระสำคัญรายสินค้าจากข้อความรายงานหน้างาน
+ */
+function extractFallbackProductsForProject(projectId, projectName, combinedText) {
+  const knownRules = [
+    { label: 'ShinkoLite', regex: /shinkolite|ชินโคไลท์|อะคริลิค/i },
+    { label: 'SCG Roof Truss', regex: /roof\s*truss|โครงหลังคา|โครงเหล็กหลังคา/i },
+    { label: 'Metal Sheet', regex: /metal\s*sheet|เมทัลชีท|หลังคาเหล็ก|standing\s*seam|snaplock/i },
+    { label: 'คอนกรีต CPAC (Slipform)', regex: /slipform|สลิปฟอร์ม/i },
+    { label: 'คอนกรีต CPAC (Post-Tension)', regex: /post[\s\-]*tension|โพสต์เทนชั่น|พื้นโพสต์/i },
+    { label: 'คอนกรีต CPAC', regex: /cpac|ซีแพค|คอนกรีต|เทคอนกรีต/i },
+    { label: 'Silo Mortar / เครื่องพ่น', regex: /silo\s*mortar|mortar|มอร์ตาร์|ปูนฉาบ|เครื่องพ่น/i },
+    { label: 'อิฐบล็อก Fast Brick', regex: /fast\s*brick|ฟาสต์บริค|อิฐมวลเบา|อิฐบล็อก/i }
+  ];
+
+  const foundProducts = [];
+  const sentences = String(combinedText || '')
+    .split(/[\n•|]+/)
+    .map(s => s.trim())
+    .filter(s => s && s !== '-' && !s.includes('หน้างานดำเนินไปตามแผนงานปกติ'));
+
+  knownRules.forEach(rule => {
+    if (rule.regex.test(combinedText)) {
+      const matchedSentence = sentences.find(s => rule.regex.test(s)) || '';
+      const shortNote = matchedSentence.length > 68
+        ? `${matchedSentence.slice(0, 68)}...`
+        : (matchedSentence || 'ติดตามความคืบหน้าและแผนเรียกสินค้า');
+      foundProducts.push({ name: rule.label, summary: shortNote });
+    }
+  });
+
+  // หากยังไม่พบคำสำคัญ ให้ดึงชื่อกลุ่มสินค้าจากไฟล์ยอดขายหลัก (projectsMapGlobal) มาแสดง
+  if (foundProducts.length === 0 && typeof projectsMapGlobal === 'object' && projectsMapGlobal) {
+    const pObj = Object.values(projectsMapGlobal).find(
+      p => (projectId && p.id === projectId) || (projectName && p.name === projectName)
+    );
+    if (pObj && pObj.productDetails) {
+      Object.keys(pObj.productDetails).slice(0, 3).forEach(prodName => {
+        foundProducts.push({
+          name: prodName,
+          summary: sentences[0] ? sentences[0].slice(0, 65) : 'อัปเดตความคืบหน้าหน้างาน'
+        });
+      });
+    }
+  }
+
+  if (foundProducts.length === 0) {
+    const fallbackNote = sentences[0] ? sentences[0].slice(0, 85) : 'อัปเดตความคืบหน้าหน้างาน';
+    return {
+      productsText: 'สินค้าโครงการ (ทั่วไป)',
+      summaryText: `• ${fallbackNote}`
+    };
+  }
+
+  return {
+    productsText: foundProducts.map(p => `• ${p.name}`).join('\n'),
+    summaryText: foundProducts.map(p => `• ${p.name}: ${p.summary}`).join('\n')
+  };
+}
+
+/**
  * สร้างเนื้อหาสรุปรวม Site Visit ทั้งหมดสำหรับหน้า Executive One-Page Summary
- * ใช้โมเดล gemini-3.5-flash-lite หากมี API Key และมี Fallback อัตโนมัติกรณีไม่ได้ใส่ Key
+ * ใช้โมเดล gemini-3.5-flash-lite สกัดรายชื่อสินค้าที่เกี่ยวข้องและสรุปสาระสำคัญของแต่ละสินค้า พร้อม Fallback อัตโนมัติ
  */
 async function prepareSiteVisitOnePageSummaryData(visits, statusTextEl) {
   const groups = groupVisitsByProjectForPptx(visits);
@@ -584,8 +644,6 @@ async function prepareSiteVisitOnePageSummaryData(visits, statusTextEl) {
     const sorted = [...g.items].sort(
       (a, b) => parseVisitDateTimestamp(a.visitDate) - parseVisitDateTimestamp(b.visitDate)
     );
-    const latest = sorted[sorted.length - 1] || {};
-    const dates = collectAllUniqueVisitDates(sorted) || '-';
 
     let risk = 'Low';
     if (sorted.some(it => String(it.riskLevel || '').toLowerCase().includes('high'))) {
@@ -598,23 +656,25 @@ async function prepareSiteVisitOnePageSummaryData(visits, statusTextEl) {
       lowRiskCount++;
     }
 
-    const cleanProgress = String(latest.siteProgress || '-').replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
-    const cleanIssue = String(latest.issuesAndRisks || '-').replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
-    const highlight = (risk !== 'Low' && cleanIssue && cleanIssue !== '-' && !cleanIssue.includes('หน้างานดำเนินไปตามแผนงานปกติ'))
-      ? `[เสี่ยง] ${cleanIssue}`
-      : cleanProgress;
+    const combinedProgress = sorted.map(it => it.siteProgress).filter(x => x && x !== '-').join(' | ');
+    const combinedForecast = sorted.map(it => it.materialForecast).filter(x => x && x !== '-').join(' | ');
+    const combinedIssue = sorted.map(it => it.issuesAndRisks).filter(x => x && x !== '-' && !x.includes('หน้างานดำเนินไปตามแผนงานปกติ')).join(' | ');
+    const combinedAction = sorted.map(it => it.nextWeekActions).filter(x => x && x !== '-').join(' | ');
+
+    const allCombinedText = [combinedProgress, combinedForecast, combinedIssue, combinedAction].filter(Boolean).join('\n');
+    const fallbackProdInfo = extractFallbackProductsForProject(g.projectId, g.projectName, allCombinedText);
 
     return {
       projectId: g.projectId || '-',
       projectName: g.projectName,
       visitCount: g.items.length,
-      dates,
       risk,
-      highlight,
-      latestProgress: cleanProgress,
-      latestForecast: String(latest.materialForecast || '-').replace(/\n+/g, ' ').trim(),
-      latestIssue: cleanIssue,
-      latestAction: String(latest.nextWeekActions || '-').replace(/\n+/g, ' ').trim()
+      productsText: fallbackProdInfo.productsText,
+      productSummaryText: fallbackProdInfo.summaryText,
+      latestProgress: combinedProgress || '-',
+      latestForecast: combinedForecast || '-',
+      latestIssue: combinedIssue || 'หน้างานดำเนินไปตามแผนงานปกติ',
+      latestAction: combinedAction || '-'
     };
   });
 
@@ -622,7 +682,7 @@ async function prepareSiteVisitOnePageSummaryData(visits, statusTextEl) {
   const riskRank = { High: 0, Medium: 1, Low: 2 };
   projectSummaries.sort((a, b) => (riskRank[a.risk] ?? 2) - (riskRank[b.risk] ?? 2));
 
-  // สร้าง Fallback สรุปภาพรวมแบบไม่พึ่งพา AI
+  // สร้าง Fallback สรุปภาพรวมผู้บริหารด้านขวา
   const buildFallbackExecutiveText = () => {
     const progressPoints = projectSummaries
       .filter(p => p.latestProgress && p.latestProgress !== '-')
@@ -631,7 +691,7 @@ async function prepareSiteVisitOnePageSummaryData(visits, statusTextEl) {
 
     const riskProjects = projectSummaries.filter(p => p.risk !== 'Low');
     const riskPoints = riskProjects.length > 0
-      ? riskProjects.slice(0, 3).map(p => `• ${truncateProjectName20(p.projectName)} (${p.risk}): ${p.latestIssue.slice(0, 75)}${p.latestIssue.length > 75 ? '...' : ''}`)
+      ? riskProjects.slice(0, 3).map(p => `• ${truncateProjectName20(p.projectName)}: ${p.latestIssue.slice(0, 75)}${p.latestIssue.length > 75 ? '...' : ''}`)
       : ['• ทุกโครงการดำเนินงานตามแผนปกติ ไม่พบความเสี่ยงระดับวิกฤต'];
 
     const actionPoints = projectSummaries
@@ -661,32 +721,43 @@ async function prepareSiteVisitOnePageSummaryData(visits, statusTextEl) {
   if (activeKey && projectSummaries.length > 0) {
     try {
       if (statusTextEl) {
-        statusTextEl.textContent = 'กำลังให้ AI (gemini-3.5-flash-lite) สร้างหน้าสรุปรวม Site Visit (One Page)...';
+        statusTextEl.textContent = 'กำลังให้ AI (gemini-3.5-flash-lite) สกัดสินค้าและสร้างหน้าสรุปรวม One Page...';
       }
 
       const digestInput = projectSummaries.map((p, idx) =>
-        `${idx + 1}. โครงการ: ${p.projectName} (${p.projectId}) | ความเสี่ยง: ${p.risk} | วันที่: ${p.dates}\n` +
-        `   - ความคืบหน้า: ${p.latestProgress}\n` +
-        `   - แผนสินค้า: ${p.latestForecast}\n` +
+        `[โครงการที่ ${idx + 1}] projectKey="${p.projectId !== '-' ? p.projectId : p.projectName}" | ชื่อโครงการ: ${p.projectName} (${p.projectId})\n` +
+        `   - ความคืบหน้า & สินค้า: ${p.latestProgress}\n` +
+        `   - แผนเรียกสินค้า: ${p.latestForecast}\n` +
         `   - ปัญหา/ความเสี่ยง: ${p.latestIssue}\n` +
-        `   - ติดตามต่อ: ${p.latestAction}`
+        `   - แผนติดตามต่อ: ${p.latestAction}`
       ).join('\n\n');
 
-      const promptText = `คุณคือผู้จัดการฝ่ายขายโครงการก่อสร้าง (SCG B2B Sales) จงสรุปภาพรวมรายงานการเข้าเยี่ยมหน้างาน (Site Visit) ทั้งหมดจำนวน ${projectSummaries.length} โครงการ (${visits.length} รายการ) เพื่อจัดวางลงในสไลด์ผู้บริหารหน้าเดียว (Executive One-Page Summary)
+      const promptText = `คุณคือผู้จัดการฝ่ายขายโครงการก่อสร้าง (SCG B2B Sales) จงวิเคราะห์รายงานการเข้าเยี่ยมหน้างาน (Site Visit) ทั้งหมดจำนวน ${projectSummaries.length} โครงการ เพื่อจัดทำสไลด์ผู้บริหารหน้าเดียว (Executive One-Page Summary)
 
-ข้อกำหนดการเขียน:
-- สรุปเป็นข้อสั้นกระชับ ขึ้นต้นแต่ละข้อด้วย "• " หัวข้อละ 2-3 ข้อ
-- ความยาวแต่ละหัวข้ออยู่ระหว่าง 180-240 ตัวอักษร เพื่อให้อ่านง่ายและพอดีกล่องบนสไลด์ 1 หน้า
-- ระบุชื่อโครงการสั้นๆ ประกอบตัวเลขสำคัญหรือชื่อสินค้าที่เด่นชัด
+สิ่งที่ต้องส่งกลับใน JSON:
+1. "projects": อาเรย์ข้อมูลรายโครงการ (ครบทั้ง ${projectSummaries.length} โครงการ) โดยแต่ละโครงการให้สกัด:
+   - "projectKey": ค่า projectKey ที่ตรงกับข้อมูลนำเข้า
+   - "relatedProducts": รายชื่อสินค้าก่อสร้างที่เกี่ยวข้องในโครงการนั้น (ขึ้นต้นแต่ละตัวด้วย "• " เช่น "• ShinkoLite\\n• SCG Roof Truss" หรือ "• คอนกรีต CPAC (Slipform)")
+   - "productSummaries": สรุปสาระสำคัญแยกตามแต่ละสินค้าในโครงการนั้นอย่างกระชับ (ขึ้นต้นแต่ละข้อด้วย "• ชื่อสินค้า: สาระสำคัญ/ปริมาณ/สถานะ" ความยาวรวม ~110-160 ตัวอักษร เพื่อให้อ่านง่ายในตาราง 1 หน้า)
+2. "keyProgress": สรุปไฮไลต์ความคืบหน้าและปริมาณสินค้าเด่นภาพรวมทุกโครงการ (• Bullet สั้นกระชับ 2-3 ข้อ รวม ~180-230 ตัวอักษร)
+3. "criticalRisks": สรุปปัญหาและความเสี่ยงสำคัญที่ต้องเฝ้าระวังเร่งด่วน (• Bullet สั้นกระชับ 2-3 ข้อ รวม ~180-230 ตัวอักษร)
+4. "keyActions": สรุปแผนการติดตามงานและ Action สัปดาห์ถัดไป (• Bullet สั้นกระชับ 2-3 ข้อ รวม ~180-230 ตัวอักษร)
 
-ตอบกลับเป็น JSON Object บริสุทธิ์เท่านั้น:
+ตอบกลับเป็น JSON Object บริสุทธิ์เท่านั้น ตามโครงสร้างนี้:
 {
-  "keyProgress": "สรุปไฮไลต์ความคืบหน้าหน้างานและการเรียกใช้สินค้าหลัก (• Bullet สั้นกระชับ 2-3 ข้อ)",
-  "criticalRisks": "สรุปปัญหาและความเสี่ยงสำคัญที่ต้องเฝ้าระวังเร่งด่วน (หากไม่มีให้ระบุ • หน้างานทุกโครงการดำเนินไปตามแผนงานปกติ)",
-  "keyActions": "สรุปแผนการติดตามงานและประสานงานสัปดาห์ถัดไป (• Bullet สั้นกระชับ 2-3 ข้อ)"
+  "projects": [
+    {
+      "projectKey": "P000...",
+      "relatedProducts": "• สินค้า A\\n• สินค้า B",
+      "productSummaries": "• สินค้า A: สรุปความคืบหน้า/ปริมาณ\\n• สินค้า B: สรุปสถานะ/แผนงาน"
+    }
+  ],
+  "keyProgress": "...",
+  "criticalRisks": "...",
+  "keyActions": "..."
 }
 
-ข้อมูลสรุปรายโครงการ:
+ข้อมูลรายงานทั้ง ${projectSummaries.length} โครงการ:
 ${digestInput}`;
 
       // บังคับใช้โมเดล gemini-3.5-flash-lite เท่านั้น
@@ -708,6 +779,25 @@ ${digestInput}`;
         const rawReply = resData?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
         const cleanedJson = rawReply.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
         const parsed = JSON.parse(cleanedJson);
+
+        if (Array.isArray(parsed.projects)) {
+          parsed.projects.forEach((aiProj, idx) => {
+            const k = String(aiProj.projectKey || '').trim();
+            const target = projectSummaries.find(
+              ps => (k && (ps.projectId === k || ps.projectName === k))
+            ) || projectSummaries[idx];
+
+            if (target) {
+              if (aiProj.relatedProducts && String(aiProj.relatedProducts).trim()) {
+                target.productsText = String(aiProj.relatedProducts).trim();
+              }
+              if (aiProj.productSummaries && String(aiProj.productSummaries).trim()) {
+                target.productSummaryText = String(aiProj.productSummaries).trim();
+              }
+            }
+          });
+        }
+
         if (parsed.keyProgress || parsed.criticalRisks || parsed.keyActions) {
           execSummary = {
             keyProgress: String(parsed.keyProgress || execSummary.keyProgress).trim(),
@@ -727,7 +817,6 @@ ${digestInput}`;
     highRiskCount,
     mediumRiskCount,
     lowRiskCount,
-    allDatesLabel: collectAllUniqueVisitDates(visits) || '-',
     projectSummaries,
     execSummary
   };
@@ -735,6 +824,7 @@ ${digestInput}`;
 
 /**
  * สร้างสไลด์ Executive One-Page Summary รวมภาพรวม Site Visit ทั้งหมดใน 1 หน้าสไลด์
+ * ตารางด้านซ้ายแสดง 3 คอลัมน์: โครงการ | สินค้าที่เกี่ยวข้อง | สรุปสาระสำคัญของแต่ละสินค้า (ไม่แสดงวันที่เข้าตรวจและสถานะ)
  */
 function addSiteVisitOnePageSummarySlide(pptx, onePageData) {
   if (!onePageData) return;
@@ -748,7 +838,7 @@ function addSiteVisitOnePageSummarySlide(pptx, onePageData) {
     'ONE-PAGE SUMMARY',
     '0369A1',
     `สรุปภาพรวมการเข้าเยี่ยมหน้างาน (Site Visit Executive Summary)`,
-    `ขอบเขต: ${meta.projLabel}   |   วันที่เข้าตรวจ: ${onePageData.allDatesLabel}`
+    `ขอบเขต: ${meta.projLabel}   |   สรุปแยกตามโครงการและกลุ่มสินค้าที่เกี่ยวข้อง (รวม ${onePageData.totalVisits} รายงาน)`
   );
 
   // แถวที่ 1: 4 การ์ด KPI สรุปภาพรวม Site Visit
@@ -806,9 +896,9 @@ function addSiteVisitOnePageSummarySlide(pptx, onePageData) {
     });
   });
 
-  // แถวที่ 2 ด้านซ้าย: ตารางสรุปสถานะรายโครงการทั้งหมดใน 1 หน้า
+  // แถวที่ 2 ด้านซ้าย: ตาราง 3 คอลัมน์ (โครงการ | สินค้าที่เกี่ยวข้อง | สรุปสาระสำคัญของแต่ละสินค้า)
   const leftX = 0.45;
-  const leftW = 7.35;
+  const leftW = 7.45;
   const bodyY = 2.34;
   const bodyH = 4.92;
 
@@ -818,52 +908,33 @@ function addSiteVisitOnePageSummarySlide(pptx, onePageData) {
     line: { color: 'CBD5E1', width: 1 }
   });
 
-  slide.addText(`สรุปสถานะรายโครงการ (${onePageData.totalProjects} โครงการ)`, {
+  slide.addText(`สรุปสินค้าที่เกี่ยวข้องและสาระสำคัญรายโครงการ (${onePageData.totalProjects} โครงการ)`, {
     x: leftX + 0.15, y: bodyY + 0.08, w: leftW - 0.30, h: 0.28,
     fontFace: 'Tahoma', fontSize: 10.5, bold: true, color: '0F172A'
   });
 
-  const maxVisibleRows = Math.min(onePageData.projectSummaries.length, 10);
+  const maxVisibleRows = Math.min(onePageData.projectSummaries.length, 9);
   const displayedProjects = onePageData.projectSummaries.slice(0, maxVisibleRows);
-  const tableFontSize = maxVisibleRows >= 8 ? 7.8 : (maxVisibleRows >= 6 ? 8.3 : 8.8);
+  const tableFontSize = maxVisibleRows >= 7 ? 7.6 : (maxVisibleRows >= 5 ? 8.1 : 8.6);
 
   const tableRows = [
     [
       { text: 'โครงการ', options: { bold: true, color: 'FFFFFF', fill: '1E293B', align: 'left' } },
-      { text: 'วันที่ตรวจ', options: { bold: true, color: 'FFFFFF', fill: '1E293B', align: 'center' } },
-      { text: 'สถานะ', options: { bold: true, color: 'FFFFFF', fill: '1E293B', align: 'center' } },
-      { text: 'สาระสำคัญ / ความคืบหน้าล่าสุด', options: { bold: true, color: 'FFFFFF', fill: '1E293B', align: 'left' } }
+      { text: 'สินค้าที่เกี่ยวข้อง', options: { bold: true, color: 'FFFFFF', fill: '0F766E', align: 'left' } },
+      { text: 'สรุปสาระสำคัญของแต่ละสินค้า', options: { bold: true, color: 'FFFFFF', fill: '1E293B', align: 'left' } }
     ]
   ];
 
   displayedProjects.forEach((p, idx) => {
     const rowBg = idx % 2 === 0 ? 'FFFFFF' : 'F8FAFC';
+    const prodBg = idx % 2 === 0 ? 'F0FDFA' : 'CCFBF1';
     const shortName = truncateProjectName20(p.projectName);
     const projCell = p.projectId && p.projectId !== '-' ? `${shortName}\n(${p.projectId})` : shortName;
 
-    let statusText = 'ปกติ';
-    let statusColor = '15803D';
-    let statusFill = 'DCFCE7';
-    if (p.risk === 'High') {
-      statusText = 'วิกฤต';
-      statusColor = 'BE123C';
-      statusFill = 'FFE4E6';
-    } else if (p.risk === 'Medium') {
-      statusText = 'เฝ้าระวัง';
-      statusColor = 'B45309';
-      statusFill = 'FEF3C7';
-    }
-
-    const maxHighlightChars = maxVisibleRows >= 8 ? 78 : 105;
-    const trimmedHighlight = p.highlight.length > maxHighlightChars
-      ? `${p.highlight.slice(0, maxHighlightChars)}...`
-      : p.highlight;
-
     tableRows.push([
       { text: projCell, options: { fill: rowBg, bold: true, color: '0F172A', align: 'left' } },
-      { text: p.dates, options: { fill: rowBg, color: '475569', align: 'center' } },
-      { text: statusText, options: { fill: statusFill, bold: true, color: statusColor, align: 'center' } },
-      { text: trimmedHighlight, options: { fill: rowBg, color: '1E293B', align: 'left' } }
+      { text: p.productsText || '-', options: { fill: prodBg, bold: true, color: '115E59', align: 'left' } },
+      { text: p.productSummaryText || '-', options: { fill: rowBg, color: '1E293B', align: 'left' } }
     ]);
   });
 
@@ -872,7 +943,7 @@ function addSiteVisitOnePageSummarySlide(pptx, onePageData) {
     tableRows.push([
       {
         text: `+ อีก ${extraCount} โครงการ (ดูรายละเอียดครบถ้วนในสไลด์ถัดไป)`,
-        options: { colspan: 4, fill: 'F1F5F9', italic: true, color: '475569', align: 'center' }
+        options: { colspan: 3, fill: 'F1F5F9', italic: true, color: '475569', align: 'center' }
       }
     ]);
   }
@@ -881,17 +952,17 @@ function addSiteVisitOnePageSummarySlide(pptx, onePageData) {
     x: leftX + 0.14,
     y: bodyY + 0.40,
     w: leftW - 0.28,
-    colW: [1.85, 1.15, 0.78, 3.29],
+    colW: [1.75, 1.85, 3.57],
     fontFace: 'Tahoma',
     fontSize: tableFontSize,
     border: { type: 'solid', color: 'CBD5E1', pt: 0.6 },
     margin: [2.5, 4, 2.5, 4],
-    valign: 'middle'
+    valign: 'top'
   });
 
   // แถวที่ 2 ด้านขวา: 3 กล่องสรุปภาพรวมผู้บริหาร (Executive Highlights)
-  const rightX = 7.98;
-  const rightW = 4.90;
+  const rightX = 8.08;
+  const rightW = 4.80;
   const boxGap = 0.12;
   const boxH = (bodyH - boxGap * 2) / 3;
 
