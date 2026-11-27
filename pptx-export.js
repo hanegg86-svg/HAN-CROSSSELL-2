@@ -3,7 +3,7 @@
  * สร้างไฟล์ PowerPoint (.pptx) ด้วย PptxGenJS แบบ Widescreen 16:9
  * รองรับการเลือกโครงการแบบ Multi-Select (1 โครงการ, หลายโครงการ หรือทั้งหมด)
  * ตัดชื่อโครงการที่ยาวเกิน 20 ตัวอักษรเหลือ 20 ตัวอักษรในหัวข้อสไลด์เพื่อไม่ให้ล้นขอบ
- * รองรับหน้าสรุปรวม Site Visit ทั้งหมดใน 1 หน้า (Executive One-Page Summary) แสดงตารางรายโครงการ + สินค้าที่เกี่ยวข้อง + สรุปสาระสำคัญของแต่ละสินค้า
+ * รองรับหน้าสรุปรวม Site Visit ทั้งหมดใน 1 หน้า (Executive One-Page Summary) แสดง 3 KPI หลัก + ตารางสรุปรายสินค้า + รูปถ่ายหน้างานด้านขวา
  * รองรับตัวเลือก AI (gemini-3.5-flash-lite) สรุปรวม Site Report รายโครงการให้เหลือ 1 หน้าสไลด์เฉพาะตอนสร้างไฟล์ PPTX
  * แสดงวันที่เข้าตรวจครบทุกวันจากรายงานย่อยทั้งหมดในโครงการ (ไม่ย่อเป็นช่วงวันที่)
  * ปรับปรุงระบบสรุปด้วย AI ให้กระชับ ตัดข้อความซ้ำซ้อนและข้อความสถานะปกติเก่าที่ขัดแย้งออก และยกเลิกการตัดข้อความทิ้งท้าย (...) เพื่อให้ข้อมูลครบถ้วน
@@ -630,15 +630,127 @@ function extractFallbackProductsForProject(projectId, projectName, combinedText)
 }
 
 /**
+ * รวบรวมรูปถ่ายหน้างานที่หลากหลายจากทุกโครงการที่เลือก (สูงสุด 3 รูป) สำหรับวางในกรอบด้านขวาของหน้า One-Page Summary
+ */
+function collectOnePageGalleryPhotos(visits) {
+  const groups = groupVisitsByProjectForPptx(visits);
+  const perProjectQueues = [];
+  const seenFingerprints = new Set();
+
+  groups.forEach(group => {
+    const projPhotos = [];
+    // เรียงจากรายงานล่าสุดไปเก่าสุดเพื่อให้ได้ภาพหน้างานล่าสุดของแต่ละโครงการ
+    const sortedItems = [...group.items].sort(
+      (a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)
+    );
+
+    sortedItems.forEach(item => {
+      const imgs = (Array.isArray(item.images) && item.images.length > 0)
+        ? item.images
+        : (item.imageData ? [{ base64Data: item.imageData, mimeType: item.mimeType || 'image/jpeg' }] : []);
+
+      imgs.forEach(imgObj => {
+        if (!imgObj || !imgObj.base64Data) return;
+        const cleanB64 = String(imgObj.base64Data).replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '');
+        const fingerprint = `${cleanB64.length}_${cleanB64.slice(0, 64)}`;
+        if (!seenFingerprints.has(fingerprint)) {
+          seenFingerprints.add(fingerprint);
+          projPhotos.push({
+            base64Data: cleanB64,
+            mimeType: imgObj.mimeType || 'image/jpeg',
+            projectName: group.projectName,
+            projectId: group.projectId || '',
+            visitDate: item.visitDate || ''
+          });
+        }
+      });
+    });
+
+    if (projPhotos.length > 0) {
+      perProjectQueues.push(projPhotos);
+    }
+  });
+
+  // ดึงแบบ Round-Robin ทีละโครงการเพื่อให้ได้รูปภาพกระจายครบหลายโครงการ (สูงสุด 3 รูป)
+  const selectedPhotos = [];
+  let round = 0;
+  while (selectedPhotos.length < 3 && perProjectQueues.some(q => q.length > round)) {
+    for (let i = 0; i < perProjectQueues.length && selectedPhotos.length < 3; i++) {
+      if (perProjectQueues[i][round]) {
+        selectedPhotos.push(perProjectQueues[i][round]);
+      }
+    }
+    round++;
+  }
+
+  return selectedPhotos;
+}
+
+/**
+ * คำนวณจำนวนสินค้า SCG ที่มีการขายจริง (Actual) ในกลุ่มโครงการที่เลือก
+ */
+function countSoldScgProductsInSelectedProjects(groups) {
+  const soldProductsSet = new Set();
+
+  // 1. ตรวจสอบจากไฟล์ยอดขาย Dealer (matchedDealerList)
+  if (Array.isArray(matchedDealerList) && matchedDealerList.length > 0) {
+    matchedDealerList.forEach(item => {
+      if (!item) return;
+      if (!isProjectSelectedForPptx(item.projectId, item.projectName)) return;
+      if (typeof isDealerItemInMasterMonthRange === 'function' && !isDealerItemInMasterMonthRange(item)) return;
+
+      const hasSales = (item.actual || 0) > 0 || (item.netAmount || 0) > 0;
+      const prodLabel = String(item.productGroup || '').trim();
+      if (hasSales && prodLabel && prodLabel !== '-') {
+        soldProductsSet.add(prodLabel);
+      }
+    });
+  }
+
+  // 2. เสริมจากรายการสินค้าที่เกิด Actual แล้วในไฟล์ยอดขายหลัก (projectList)
+  if (Array.isArray(projectList) && projectList.length > 0) {
+    projectList.forEach(p => {
+      if (!p) return;
+      if (!isProjectSelectedForPptx(p.id, p.name, p.key)) return;
+      if (Array.isArray(p.boughtProducts)) {
+        p.boughtProducts.forEach(prodName => {
+          const clean = String(prodName || '').trim();
+          if (clean && clean !== '-') {
+            soldProductsSet.add(clean);
+          }
+        });
+      }
+    });
+  }
+
+  // 3. กรณียังไม่ได้อัปโหลดไฟล์ยอดขาย CSV ให้รวบรวมจากกลุ่มสินค้า SCG ที่ตรวจพบในรายงาน Site Visit ของโครงการที่เลือก
+  if (soldProductsSet.size === 0 && Array.isArray(groups)) {
+    groups.forEach(g => {
+      const combined = g.items
+        .map(it => `${it.siteProgress || ''} ${it.materialForecast || ''}`)
+        .join('\n');
+      if (/shinkolite|ชินโคไลท์/i.test(combined)) soldProductsSet.add('ShinkoLite');
+      if (/roof\s*truss|โครงหลังคา/i.test(combined)) soldProductsSet.add('SCG Roof Truss');
+      if (/metal\s*sheet|เมทัลชีท/i.test(combined)) soldProductsSet.add('Metal Sheet');
+      if (/slipform/i.test(combined)) soldProductsSet.add('CPAC Slipform');
+      if (/post[\s\-]*tension|post\s*plus/i.test(combined)) soldProductsSet.add('CPAC Post-Tension / Post Plus');
+      if (/cpac|คอนกรีต/i.test(combined)) soldProductsSet.add('คอนกรีต CPAC');
+      if (/mortar|มอร์ตาร์/i.test(combined)) soldProductsSet.add('Silo Mortar');
+      if (/fast\s*brick|ฟาสต์บริค/i.test(combined)) soldProductsSet.add('Fast Brick');
+    });
+  }
+
+  return soldProductsSet.size;
+}
+
+/**
  * สร้างเนื้อหาสรุปรวม Site Visit ทั้งหมดสำหรับหน้า Executive One-Page Summary
  * ใช้โมเดล gemini-3.5-flash-lite สกัดรายชื่อสินค้าที่เกี่ยวข้องและสรุปสาระสำคัญของแต่ละสินค้า พร้อม Fallback อัตโนมัติ
  */
 async function prepareSiteVisitOnePageSummaryData(visits, statusTextEl) {
   const groups = groupVisitsByProjectForPptx(visits);
-
-  let highRiskCount = 0;
-  let mediumRiskCount = 0;
-  let lowRiskCount = 0;
+  const soldScgProductCount = countSoldScgProductsInSelectedProjects(groups);
+  const galleryPhotos = collectOnePageGalleryPhotos(visits);
 
   const projectSummaries = groups.map(g => {
     const sorted = [...g.items].sort(
@@ -648,12 +760,8 @@ async function prepareSiteVisitOnePageSummaryData(visits, statusTextEl) {
     let risk = 'Low';
     if (sorted.some(it => String(it.riskLevel || '').toLowerCase().includes('high'))) {
       risk = 'High';
-      highRiskCount++;
     } else if (sorted.some(it => String(it.riskLevel || '').toLowerCase().includes('med'))) {
       risk = 'Medium';
-      mediumRiskCount++;
-    } else {
-      lowRiskCount++;
     }
 
     const combinedProgress = sorted.map(it => it.siteProgress).filter(x => x && x !== '-').join(' | ');
@@ -682,41 +790,12 @@ async function prepareSiteVisitOnePageSummaryData(visits, statusTextEl) {
   const riskRank = { High: 0, Medium: 1, Low: 2 };
   projectSummaries.sort((a, b) => (riskRank[a.risk] ?? 2) - (riskRank[b.risk] ?? 2));
 
-  // สร้าง Fallback สรุปภาพรวมผู้บริหารด้านขวา
-  const buildFallbackExecutiveText = () => {
-    const progressPoints = projectSummaries
-      .filter(p => p.latestProgress && p.latestProgress !== '-')
-      .slice(0, 3)
-      .map(p => `• ${truncateProjectName20(p.projectName)}: ${p.latestProgress.slice(0, 75)}${p.latestProgress.length > 75 ? '...' : ''}`);
-
-    const riskProjects = projectSummaries.filter(p => p.risk !== 'Low');
-    const riskPoints = riskProjects.length > 0
-      ? riskProjects.slice(0, 3).map(p => `• ${truncateProjectName20(p.projectName)}: ${p.latestIssue.slice(0, 75)}${p.latestIssue.length > 75 ? '...' : ''}`)
-      : ['• ทุกโครงการดำเนินงานตามแผนปกติ ไม่พบความเสี่ยงระดับวิกฤต'];
-
-    const actionPoints = projectSummaries
-      .filter(p => (p.latestAction && p.latestAction !== '-') || (p.latestForecast && p.latestForecast !== '-'))
-      .slice(0, 3)
-      .map(p => {
-        const act = (p.latestAction && p.latestAction !== '-') ? p.latestAction : p.latestForecast;
-        return `• ${truncateProjectName20(p.projectName)}: ${act.slice(0, 75)}${act.length > 75 ? '...' : ''}`;
-      });
-
-    return {
-      keyProgress: progressPoints.length > 0 ? progressPoints.join('\n') : '• อัปเดตความคืบหน้าและภาพถ่ายหน้างานครบถ้วนตามรอบการเข้าเยี่ยม',
-      criticalRisks: riskPoints.join('\n'),
-      keyActions: actionPoints.length > 0 ? actionPoints.join('\n') : '• ติดตามแผนเรียกสินค้าและประสานงานผู้รับเหมาตามกำหนดการ'
-    };
-  };
-
   let activeKey = geminiApiKey;
   if (!activeKey && typeof dbGet === 'function') {
     if (!db && typeof initIndexedDB === 'function') await initIndexedDB();
     activeKey = (await dbGet('settings', 'gemini_api_key')) || '';
     geminiApiKey = activeKey;
   }
-
-  let execSummary = buildFallbackExecutiveText();
 
   if (activeKey && projectSummaries.length > 0) {
     try {
@@ -732,16 +811,13 @@ async function prepareSiteVisitOnePageSummaryData(visits, statusTextEl) {
         `   - แผนติดตามต่อ: ${p.latestAction}`
       ).join('\n\n');
 
-      const promptText = `คุณคือผู้จัดการฝ่ายขายโครงการก่อสร้าง (SCG B2B Sales) จงวิเคราะห์รายงานการเข้าเยี่ยมหน้างาน (Site Visit) ทั้งหมดจำนวน ${projectSummaries.length} โครงการ เพื่อจัดทำสไลด์ผู้บริหารหน้าเดียว (Executive One-Page Summary)
+      const promptText = `คุณคือผู้จัดการฝ่ายขายโครงการก่อสร้าง (SCG B2B Sales) จงวิเคราะห์รายงานการเข้าเยี่ยมหน้างาน (Site Visit) ทั้งหมดจำนวน ${projectSummaries.length} โครงการ เพื่อจัดทำตารางสรุปรายโครงการและสินค้าสำหรับสไลด์ผู้บริหารหน้าเดียว (Executive One-Page Summary)
 
 สิ่งที่ต้องส่งกลับใน JSON:
-1. "projects": อาเรย์ข้อมูลรายโครงการ (ครบทั้ง ${projectSummaries.length} โครงการ) โดยแต่ละโครงการให้สกัด:
-   - "projectKey": ค่า projectKey ที่ตรงกับข้อมูลนำเข้า
-   - "relatedProducts": รายชื่อสินค้าก่อสร้างที่เกี่ยวข้องในโครงการนั้น (ขึ้นต้นแต่ละตัวด้วย "• " เช่น "• ShinkoLite\\n• SCG Roof Truss" หรือ "• คอนกรีต CPAC (Slipform)")
-   - "productSummaries": สรุปสาระสำคัญแยกตามแต่ละสินค้าในโครงการนั้นอย่างกระชับ (ขึ้นต้นแต่ละข้อด้วย "• ชื่อสินค้า: สาระสำคัญ/ปริมาณ/สถานะ" ความยาวรวม ~110-160 ตัวอักษร เพื่อให้อ่านง่ายในตาราง 1 หน้า)
-2. "keyProgress": สรุปไฮไลต์ความคืบหน้าและปริมาณสินค้าเด่นภาพรวมทุกโครงการ (• Bullet สั้นกระชับ 2-3 ข้อ รวม ~180-230 ตัวอักษร)
-3. "criticalRisks": สรุปปัญหาและความเสี่ยงสำคัญที่ต้องเฝ้าระวังเร่งด่วน (• Bullet สั้นกระชับ 2-3 ข้อ รวม ~180-230 ตัวอักษร)
-4. "keyActions": สรุปแผนการติดตามงานและ Action สัปดาห์ถัดไป (• Bullet สั้นกระชับ 2-3 ข้อ รวม ~180-230 ตัวอักษร)
+"projects": อาเรย์ข้อมูลรายโครงการ (ครบทั้ง ${projectSummaries.length} โครงการ) โดยแต่ละโครงการให้สกัด:
+- "projectKey": ค่า projectKey ที่ตรงกับข้อมูลนำเข้า
+- "relatedProducts": รายชื่อสินค้า SCG / สินค้าก่อสร้างที่เกี่ยวข้องในโครงการนั้น (ขึ้นต้นแต่ละตัวด้วย "• " เช่น "• ShinkoLite\\n• SCG Roof Truss" หรือ "• คอนกรีต CPAC (Slipform)")
+- "productSummaries": สรุปสาระสำคัญแยกตามแต่ละสินค้าในโครงการนั้นอย่างกระชับ (ขึ้นต้นแต่ละข้อด้วย "• ชื่อสินค้า: สาระสำคัญ/ปริมาณ/สถานะ" ความยาวรวม ~110-160 ตัวอักษร เพื่อให้อ่านง่ายในตาราง 1 หน้า)
 
 ตอบกลับเป็น JSON Object บริสุทธิ์เท่านั้น ตามโครงสร้างนี้:
 {
@@ -751,10 +827,7 @@ async function prepareSiteVisitOnePageSummaryData(visits, statusTextEl) {
       "relatedProducts": "• สินค้า A\\n• สินค้า B",
       "productSummaries": "• สินค้า A: สรุปความคืบหน้า/ปริมาณ\\n• สินค้า B: สรุปสถานะ/แผนงาน"
     }
-  ],
-  "keyProgress": "...",
-  "criticalRisks": "...",
-  "keyActions": "..."
+  ]
 }
 
 ข้อมูลรายงานทั้ง ${projectSummaries.length} โครงการ:
@@ -797,14 +870,6 @@ ${digestInput}`;
             }
           });
         }
-
-        if (parsed.keyProgress || parsed.criticalRisks || parsed.keyActions) {
-          execSummary = {
-            keyProgress: String(parsed.keyProgress || execSummary.keyProgress).trim(),
-            criticalRisks: String(parsed.criticalRisks || execSummary.criticalRisks).trim(),
-            keyActions: String(parsed.keyActions || execSummary.keyActions).trim()
-          };
-        }
       }
     } catch (err) {
       console.warn('Executive One-Page AI summary fallback used:', err);
@@ -813,18 +878,18 @@ ${digestInput}`;
 
   return {
     totalProjects: projectSummaries.length,
+    soldScgProductCount,
     totalVisits: visits.length,
-    highRiskCount,
-    mediumRiskCount,
-    lowRiskCount,
     projectSummaries,
-    execSummary
+    galleryPhotos
   };
 }
 
 /**
  * สร้างสไลด์ Executive One-Page Summary รวมภาพรวม Site Visit ทั้งหมดใน 1 หน้าสไลด์
- * ตารางด้านซ้ายแสดง 3 คอลัมน์: โครงการ | สินค้าที่เกี่ยวข้อง | สรุปสาระสำคัญของแต่ละสินค้า (ไม่แสดงวันที่เข้าตรวจและสถานะ)
+ * - แถวบน: 3 การ์ด KPI (1. จำนวนโครงการที่ On-board, 2. จำนวนสินค้า SCG ที่มีการขายในโครงการ, 3. จำนวนการเข้า Site ให้บริการ)
+ * - ด้านซ้าย: ตาราง 3 คอลัมน์ (โครงการ | สินค้าที่เกี่ยวข้อง | สรุปสาระสำคัญของแต่ละสินค้า)
+ * - ด้านขวา: กรอบรูปถ่ายหน้างานเรียง 3 ภาพพร้อมป้ายชื่อโครงการ
  */
 function addSiteVisitOnePageSummarySlide(pptx, onePageData) {
   if (!onePageData) return;
@@ -838,67 +903,60 @@ function addSiteVisitOnePageSummarySlide(pptx, onePageData) {
     'ONE-PAGE SUMMARY',
     '0369A1',
     `สรุปภาพรวมการเข้าเยี่ยมหน้างาน (Site Visit Executive Summary)`,
-    `ขอบเขต: ${meta.projLabel}   |   สรุปแยกตามโครงการและกลุ่มสินค้าที่เกี่ยวข้อง (รวม ${onePageData.totalVisits} รายงาน)`
+    `ขอบเขต: ${meta.projLabel}   |   สรุปแยกตามโครงการ กลุ่มสินค้า SCG และภาพถ่ายหน้างาน`
   );
 
-  // แถวที่ 1: 4 การ์ด KPI สรุปภาพรวม Site Visit
+  // แถวที่ 1: 3 การ์ด KPI หลักตามที่กำหนด
   const kpiCards = [
     {
-      label: 'โครงการที่เข้าเยี่ยม',
+      label: '1. จำนวนโครงการที่ On-board',
       value: `${onePageData.totalProjects} โครงการ`,
-      sub: `รวม ${onePageData.totalVisits} รายงาน/ครั้ง`,
+      sub: 'โครงการที่เข้าดูแลและบันทึกหน้างาน',
       accent: '0284C7',
       bg: 'F0F9FF'
     },
     {
-      label: 'สถานะปกติ (Low Risk)',
-      value: `${onePageData.lowRiskCount} โครงการ`,
-      sub: 'ดำเนินงานตามแผน',
+      label: '2. จำนวนสินค้า SCG ที่มีการขายในโครงการ',
+      value: `${onePageData.soldScgProductCount} กลุ่มสินค้า`,
+      sub: 'กลุ่มสินค้า SCG ที่เกิดยอดขายจริง (Actual)',
       accent: '059669',
       bg: 'ECFDF5'
     },
     {
-      label: 'เฝ้าระวัง (Medium Risk)',
-      value: `${onePageData.mediumRiskCount} โครงการ`,
-      sub: 'ต้องติดตามใกล้ชิด',
-      accent: 'D97706',
-      bg: 'FFFBEB'
-    },
-    {
-      label: 'วิกฤต (High Risk)',
-      value: `${onePageData.highRiskCount} โครงการ`,
-      sub: 'เร่งแก้ไขปัญหาหน้างาน',
-      accent: 'E11D48',
-      bg: 'FFF1F2'
+      label: '3. จำนวนการเข้า Site ให้บริการ',
+      value: `${onePageData.totalVisits} ครั้ง`,
+      sub: 'จำนวนรอบการเข้าตรวจและให้บริการหน้างาน',
+      accent: '4F46E5',
+      bg: 'EEF2FF'
     }
   ];
 
-  const cardW = 2.97;
-  const gap = 0.18;
+  const cardW = 4.02;
+  const gap = 0.185;
   kpiCards.forEach((c, idx) => {
     const xPos = 0.45 + idx * (cardW + gap);
     slide.addShape(pptx.ShapeType.roundRect, {
       x: xPos, y: 1.06, w: cardW, h: 1.12,
       fill: { color: c.bg },
-      line: { color: c.accent, width: 1.1 }
+      line: { color: c.accent, width: 1.15 }
     });
     slide.addText(c.label, {
-      x: xPos + 0.14, y: 1.13, w: cardW - 0.28, h: 0.24,
-      fontFace: 'Tahoma', fontSize: 9, bold: true, color: '334155'
+      x: xPos + 0.16, y: 1.13, w: cardW - 0.32, h: 0.24,
+      fontFace: 'Tahoma', fontSize: 9.5, bold: true, color: '334155'
     });
     slide.addText(c.value, {
-      x: xPos + 0.14, y: 1.38, w: cardW - 0.28, h: 0.40,
-      fontFace: 'Tahoma', fontSize: 15, bold: true, color: c.accent
+      x: xPos + 0.16, y: 1.38, w: cardW - 0.32, h: 0.40,
+      fontFace: 'Tahoma', fontSize: 16, bold: true, color: c.accent
     });
     slide.addText(c.sub, {
-      x: xPos + 0.14, y: 1.82, w: cardW - 0.28, h: 0.25,
+      x: xPos + 0.16, y: 1.82, w: cardW - 0.32, h: 0.25,
       fontFace: 'Tahoma', fontSize: 8.5, color: '64748B'
     });
   });
 
   // แถวที่ 2 ด้านซ้าย: ตาราง 3 คอลัมน์ (โครงการ | สินค้าที่เกี่ยวข้อง | สรุปสาระสำคัญของแต่ละสินค้า)
   const leftX = 0.45;
-  const leftW = 7.45;
+  const leftW = 8.15;
   const bodyY = 2.34;
   const bodyH = 4.92;
 
@@ -915,7 +973,7 @@ function addSiteVisitOnePageSummarySlide(pptx, onePageData) {
 
   const maxVisibleRows = Math.min(onePageData.projectSummaries.length, 9);
   const displayedProjects = onePageData.projectSummaries.slice(0, maxVisibleRows);
-  const tableFontSize = maxVisibleRows >= 7 ? 7.6 : (maxVisibleRows >= 5 ? 8.1 : 8.6);
+  const tableFontSize = maxVisibleRows >= 7 ? 7.7 : (maxVisibleRows >= 5 ? 8.2 : 8.7);
 
   const tableRows = [
     [
@@ -952,7 +1010,7 @@ function addSiteVisitOnePageSummarySlide(pptx, onePageData) {
     x: leftX + 0.14,
     y: bodyY + 0.40,
     w: leftW - 0.28,
-    colW: [1.75, 1.85, 3.57],
+    colW: [1.85, 1.95, 4.07],
     fontFace: 'Tahoma',
     fontSize: tableFontSize,
     border: { type: 'solid', color: 'CBD5E1', pt: 0.6 },
@@ -960,66 +1018,72 @@ function addSiteVisitOnePageSummarySlide(pptx, onePageData) {
     valign: 'top'
   });
 
-  // แถวที่ 2 ด้านขวา: 3 กล่องสรุปภาพรวมผู้บริหาร (Executive Highlights)
-  const rightX = 8.08;
-  const rightW = 4.80;
-  const boxGap = 0.12;
-  const boxH = (bodyH - boxGap * 2) / 3;
+  // แถวที่ 2 ด้านขวา: กรอบแสดงรูปถ่ายหน้างาน (3 ช่องแนวตั้ง)
+  const rightX = 8.78;
+  const rightW = 4.10;
+  const photos = Array.isArray(onePageData.galleryPhotos) ? onePageData.galleryPhotos.slice(0, 3) : [];
 
-  const summaryBoxes = [
-    {
-      title: '1. ไฮไลต์ความคืบหน้า & ความต้องการสินค้า',
-      body: onePageData.execSummary.keyProgress,
-      bg: 'EFF6FF',
-      border: 'BFDBFE',
-      titleColor: '1E3A8A'
-    },
-    {
-      title: '2. ประเด็นปัญหา & ความเสี่ยงที่ต้องเฝ้าระวัง',
-      body: onePageData.execSummary.criticalRisks,
-      bg: 'FFF1F2',
-      border: 'FECDD3',
-      titleColor: '9F1239'
-    },
-    {
-      title: '3. แผนการติดตามงาน & Action สัปดาห์หน้า',
-      body: onePageData.execSummary.keyActions,
-      bg: 'ECFDF5',
-      border: 'A7F3D0',
-      titleColor: '065F46'
-    }
-  ];
-
-  let curBoxY = bodyY;
-  summaryBoxes.forEach(box => {
-    slide.addShape(pptx.ShapeType.roundRect, {
-      x: rightX, y: curBoxY, w: rightW, h: boxH,
-      fill: { color: box.bg },
-      line: { color: box.border, width: 1 }
-    });
-
-    slide.addText(box.title, {
-      x: rightX + 0.14, y: curBoxY + 0.06, w: rightW - 0.28, h: 0.24,
-      fontFace: 'Tahoma', fontSize: 9.5, bold: true, color: box.titleColor
-    });
-
-    const fitted = calcAutoFitTextLayout(box.body, rightW, boxH);
-    slide.addText(fitted.text, {
-      x: rightX + 0.14,
-      y: curBoxY + 0.30,
-      w: rightW - 0.28,
-      h: boxH - 0.35,
-      fontFace: 'Tahoma',
-      fontSize: fitted.fontSize,
-      color: '1E293B',
-      valign: 'top',
-      wrap: true,
-      fit: 'shrink',
-      lineSpacingMultiple: fitted.lineSpacingMultiple
-    });
-
-    curBoxY += boxH + boxGap;
+  slide.addShape(pptx.ShapeType.roundRect, {
+    x: rightX, y: bodyY, w: rightW, h: bodyH,
+    fill: { color: 'FFFFFF' },
+    line: { color: 'BAE6FD', width: 1 }
   });
+
+  slide.addText(
+    photos.length > 0 ? `ภาพถ่ายหน้างาน (${photos.length} ภาพไฮไลต์)` : 'ภาพถ่ายหน้างาน',
+    {
+      x: rightX + 0.14, y: bodyY + 0.08, w: rightW - 0.28, h: 0.26,
+      fontFace: 'Tahoma', fontSize: 10, bold: true, color: '0369A1'
+    }
+  );
+
+  const innerX = rightX + 0.14;
+  const innerY = bodyY + 0.38;
+  const innerW = rightW - 0.28;
+  const innerH = bodyH - 0.50;
+
+  if (photos.length === 0) {
+    slide.addShape(pptx.ShapeType.roundRect, {
+      x: innerX, y: innerY, w: innerW, h: innerH,
+      fill: { color: 'F8FAFC' },
+      line: { color: 'CBD5E1', width: 1, dashType: 'dash' }
+    });
+    slide.addText('ยังไม่มีรูปถ่ายหน้างานแนบในรายการที่เลือก', {
+      x: innerX, y: innerY, w: innerW, h: innerH,
+      fontFace: 'Tahoma', fontSize: 9.5, color: '94A3B8', align: 'center', valign: 'middle'
+    });
+  } else {
+    const slotCount = photos.length;
+    const slotGap = 0.10;
+    const slotH = (innerH - slotGap * (slotCount - 1)) / slotCount;
+    const captionH = 0.24;
+
+    photos.forEach((photoObj, pIdx) => {
+      const slotY = innerY + pIdx * (slotH + slotGap);
+
+      // กรอบพื้นหลังของแต่ละรูป
+      slide.addShape(pptx.ShapeType.roundRect, {
+        x: innerX, y: slotY, w: innerW, h: slotH,
+        fill: { color: 'F8FAFC' },
+        line: { color: 'E2E8F0', width: 0.8 }
+      });
+
+      // รูปถ่ายหน้างาน
+      const imgH = Math.max(0.45, slotH - captionH - 0.04);
+      addFormattedSitePhoto(slide, photoObj, innerX + 0.04, slotY + 0.03, innerW - 0.08, imgH);
+
+      // แถบชื่อโครงการกำกับด้านล่างรูป
+      const shortProj = truncateProjectName20(photoObj.projectName || 'หน้างาน');
+      slide.addShape(pptx.ShapeType.rect, {
+        x: innerX, y: slotY + slotH - captionH, w: innerW, h: captionH,
+        fill: { color: '0F172A' }
+      });
+      slide.addText(`${pIdx + 1}. ${shortProj}`, {
+        x: innerX + 0.08, y: slotY + slotH - captionH, w: innerW - 0.16, h: captionH,
+        fontFace: 'Tahoma', fontSize: 8, bold: true, color: 'F8FAFC', align: 'left', valign: 'middle'
+      });
+    });
+  }
 }
 
 function getSelectElementOptionText(selectId) {
